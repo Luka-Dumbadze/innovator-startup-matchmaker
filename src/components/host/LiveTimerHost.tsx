@@ -182,6 +182,7 @@ export function LiveTimerHost({ className = "" }: LiveTimerHostProps) {
             strokeWidth={stroke}
             strokeLinecap="round"
             strokeDasharray={circumference}
+            initial={{ strokeDashoffset: dashOffset, opacity: 1 }}
             animate={{
               strokeDashoffset: dashOffset,
               opacity: isUrgent ? [1, 0.45, 1] : 1,
@@ -197,6 +198,7 @@ export function LiveTimerHost({ className = "" }: LiveTimerHostProps) {
           className={`absolute font-mono text-4xl font-black tracking-tight tabular-nums xl:text-5xl ${
             isUrgent || isDone ? "text-rose-400" : "text-white"
           }`}
+          initial={{ scale: 1 }}
           animate={isUrgent ? { scale: [1, 1.06, 1] } : { scale: 1 }}
           transition={isUrgent ? { duration: 0.55, repeat: Infinity } : undefined}
         >
@@ -208,6 +210,7 @@ export function LiveTimerHost({ className = "" }: LiveTimerHostProps) {
         <motion.div
           className="h-full rounded-full"
           style={{ backgroundColor: ringColor }}
+          initial={{ width: `${progress * 100}%`, opacity: 1 }}
           animate={{
             width: `${progress * 100}%`,
             opacity: isUrgent ? [1, 0.5, 1] : 1,

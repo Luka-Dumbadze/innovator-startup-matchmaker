@@ -17,6 +17,7 @@ export function TeamHostCard({ team, justJoined = false }: TeamHostCardProps) {
   return (
     <motion.article
       layout
+      initial={{ scale: 1, boxShadow: "0 0 0 0 transparent" }}
       animate={
         justJoined
           ? {
@@ -107,8 +108,8 @@ export function TeamHostCard({ team, justJoined = false }: TeamHostCardProps) {
             style={{
               backgroundColor: isFull ? "#34d399" : team.color,
             }}
-            initial={false}
-            animate={{ width: `${progress * 100}%` }}
+            initial={{ width: `${progress * 100}%`, opacity: 1 }}
+            animate={{ width: `${progress * 100}%`, opacity: 1 }}
             transition={{ type: "spring", stiffness: 120, damping: 20 }}
           />
         </div>
