@@ -49,7 +49,7 @@ flowchart LR
 
 ## Key Engineering Highlights
 
-- **PostgreSQL atomic row locking** — `assign_player_atomically` locks all session team rows with `SELECT … FOR UPDATE` (ordered by `team_number`), then increments capacity and inserts the assignment in one transaction. Designed for **40 concurrent QR scans** with zero oversell.
+- **PostgreSQL atomic row locking** — `assign_player_atomically` locks all session team rows with `SELECT … FOR UPDATE` (stable `team_number` order to avoid deadlocks), then seats the player on a **random open team** (`ORDER BY RANDOM()`), increments capacity, and inserts the assignment in one transaction. Designed for **40 concurrent QR scans** with zero oversell.
 - **Idempotent re-joins** — unique `(session_id, player_uid)` plus early existence check; twin requests that race the insert are reconciled via `unique_violation` handling.
 - **Sub-100ms hall sync** — Host view subscribes to Realtime on `teams` / `player_assignments` so occupancy and join pulses update as students land.
 - **Daily word management** — Admin can auto-fill 8 teams from a Georgian preset bank or edit words manually, then activate a session for the morning.
