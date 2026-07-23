@@ -39,25 +39,22 @@ describe("getOrCreatePlayerUid", () => {
 });
 
 describe("formatPitchSummary", () => {
-  const words = ["აუზი", "დრონი", "რობოტი", "ხიდი"] as [
-    string,
-    string,
-    string,
-    string,
-  ];
+  const domain = "ჯანდაცვა & MedTech";
+  const words = ["აუზი", "დრონი", "რობოტი"];
 
-  it("formats a complete pitch from notes and words", () => {
+  it("formats a complete pitch from notes, domain, and keywords", () => {
     const notes: IdeaNotes = {
       startupName: "BridgeBot",
       problemSolved: "Rural clinics lack fast supply drops",
       howWordsUsed: "Drones cross the bridge pool to robot hubs",
     };
 
-    const pitch = formatPitchSummary(notes, words);
+    const pitch = formatPitchSummary(notes, domain, words);
 
     expect(pitch).toContain("🚀 BridgeBot");
+    expect(pitch).toContain("🎯 Target industry: ჯანდაცვა & MedTech");
     expect(pitch).toContain("Problem: Rural clinics lack fast supply drops");
-    expect(pitch).toContain("Our 4 words: აუზი · დრონი · რობოტი · ხიდი");
+    expect(pitch).toContain("🔑 Keywords: აუზი · დრონი · რობოტი");
     expect(pitch).toContain(
       "How we use them: Drones cross the bridge pool to robot hubs"
     );
@@ -66,10 +63,12 @@ describe("formatPitchSummary", () => {
   it("falls back to placeholders when fields are empty", () => {
     const pitch = formatPitchSummary(
       { startupName: "  ", problemSolved: "", howWordsUsed: "" },
+      "  ",
       words
     );
 
     expect(pitch).toContain("🚀 Untitled Startup");
+    expect(pitch).toContain("🎯 Target industry: —");
     expect(pitch).toContain("Problem: —");
     expect(pitch).toContain("How we use them: —");
   });

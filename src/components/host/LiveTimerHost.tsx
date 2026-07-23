@@ -2,27 +2,20 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Pause, Play, RotateCcw, Timer } from "lucide-react";
+import { Pause, Play, RotateCcw, Timer, Zap } from "lucide-react";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 
-export type TimerMode = "brainstorm" | "pitch";
+import { createBrowserSupabaseClient } from "@/lib/supabase/client";
+import {
+  MODE_LABELS,
+  MODE_SECONDS,
+  broadcastTimerEvent,
+  formatTimerClock,
+  sessionTimerChannelName,
+  type TimerMode,
+} from "@/lib/timer/session-timer";
 
-const MODE_SECONDS: Record<TimerMode, number> = {
-  brainstorm: 12 * 60,
-  pitch: 60,
-};
-
-const MODE_LABELS: Record<TimerMode, string> = {
-  brainstorm: "12-Min Brainstorm",
-  pitch: "1-Min Pitch",
-};
-
-function formatTime(totalSeconds: number): string {
-  const m = Math.floor(totalSeconds / 60);
-  const s = totalSeconds % 60;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
-
-/** Short descending chime via Web Audio API (no asset files). */
+/** Short descending chime via Web Audio API (host local feedback). */
 function playChime(): void {
   try {
     const AudioCtx =
@@ -54,16 +47,31 @@ function playChime(): void {
   }
 }
 
+const MODE_BUTTONS: { mode: TimerMode; label: string }[] = [
+  { mode: "solo_brainstorm", label: "2-Min" },
+  { mode: "team_brainstorm", label: "10-Min" },
+  { mode: "pitch", label: "1-Min" },
+];
+
 type LiveTimerHostProps = {
+  sessionId: string;
   className?: string;
 };
 
-export function LiveTimerHost({ className = "" }: LiveTimerHostProps) {
-  const [mode, setMode] = useState<TimerMode>("brainstorm");
-  const [remaining, setRemaining] = useState(MODE_SECONDS.brainstorm);
+export function LiveTimerHost({ sessionId, className = "" }: LiveTimerHostProps) {
+  const [mode, setMode] = useState<TimerMode>("solo_brainstorm");
+  const [remaining, setRemaining] = useState(MODE_SECONDS.solo_brainstorm);
   const [running, setRunning] = useState(false);
+  const [channelReady, setChannelReady] = useState(false);
+  const [flowActive, setFlowActive] = useState(false);
   const chimedRef = useRef(false);
   const intervalRef = useRef<number | null>(null);
+  const channelRef = useRef<RealtimeChannel | null>(null);
+  const modeRef = useRef(mode);
+  const flowActiveRef = useRef(false);
+
+  modeRef.current = mode;
+  flowActiveRef.current = flowActive;
 
   const duration = MODE_SECONDS[mode];
   const progress = remaining / duration;
@@ -76,12 +84,43 @@ export function LiveTimerHost({ className = "" }: LiveTimerHostProps) {
     return "#22c55e";
   }, [isDone, isUrgent, progress]);
 
+  useEffect(() => {
+    const supabase = createBrowserSupabaseClient();
+    const channel = supabase.channel(sessionTimerChannelName(sessionId), {
+      config: { broadcast: { self: false } },
+    });
+
+    channel.subscribe((status) => {
+      setChannelReady(status === "SUBSCRIBED");
+    });
+
+    channelRef.current = channel;
+
+    return () => {
+      setChannelReady(false);
+      channelRef.current = null;
+      void supabase.removeChannel(channel);
+    };
+  }, [sessionId]);
+
   const clearTick = () => {
     if (intervalRef.current !== null) {
       window.clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
   };
+
+  const startMode = useCallback((next: TimerMode, seconds?: number) => {
+    const secs = seconds ?? MODE_SECONDS[next];
+    setMode(next);
+    setRemaining(secs);
+    chimedRef.current = false;
+    setRunning(true);
+    void broadcastTimerEvent(channelRef.current, "TIMER_STARTED", {
+      mode: next,
+      secondsRemaining: secs,
+    });
+  }, []);
 
   useEffect(() => {
     if (!running) {
@@ -104,26 +143,85 @@ export function LiveTimerHost({ className = "" }: LiveTimerHostProps) {
   }, [running]);
 
   useEffect(() => {
-    if (remaining === 0 && !chimedRef.current) {
-      chimedRef.current = true;
-      playChime();
+    if (remaining !== 0 || chimedRef.current) {
+      if (remaining > 0) chimedRef.current = false;
+      return;
     }
-    if (remaining > 0) {
-      chimedRef.current = false;
+
+    chimedRef.current = true;
+    const expiredMode = modeRef.current;
+    playChime();
+    void broadcastTimerEvent(channelRef.current, "TIMER_EXPIRED", {
+      mode: expiredMode,
+      secondsRemaining: 0,
+    });
+
+    // Full 12-min flow: Solo (2m) → Team (10m)
+    if (expiredMode === "solo_brainstorm" && flowActiveRef.current) {
+      window.setTimeout(() => {
+        startMode("team_brainstorm");
+      }, 400);
+      return;
     }
-  }, [remaining]);
+
+    if (expiredMode === "team_brainstorm" && flowActiveRef.current) {
+      setFlowActive(false);
+      flowActiveRef.current = false;
+    }
+  }, [remaining, startMode]);
 
   const switchMode = useCallback((next: TimerMode) => {
+    setFlowActive(false);
+    flowActiveRef.current = false;
     setMode(next);
     setRunning(false);
-    setRemaining(MODE_SECONDS[next]);
+    const nextSeconds = MODE_SECONDS[next];
+    setRemaining(nextSeconds);
     chimedRef.current = false;
+    void broadcastTimerEvent(channelRef.current, "TIMER_RESET", {
+      mode: next,
+      secondsRemaining: nextSeconds,
+    });
   }, []);
 
   const reset = () => {
+    setFlowActive(false);
+    flowActiveRef.current = false;
     setRunning(false);
     setRemaining(duration);
     chimedRef.current = false;
+    void broadcastTimerEvent(channelRef.current, "TIMER_RESET", {
+      mode,
+      secondsRemaining: duration,
+    });
+  };
+
+  const toggleRun = () => {
+    if (remaining === 0) {
+      startMode(mode, duration);
+      return;
+    }
+
+    if (running) {
+      setRunning(false);
+      void broadcastTimerEvent(channelRef.current, "TIMER_PAUSED", {
+        mode,
+        secondsRemaining: remaining,
+      });
+      return;
+    }
+
+    setRunning(true);
+    void broadcastTimerEvent(channelRef.current, "TIMER_STARTED", {
+      mode,
+      secondsRemaining: remaining,
+    });
+  };
+
+  const startFullFlow = () => {
+    setFlowActive(true);
+    flowActiveRef.current = true;
+    startMode("solo_brainstorm");
   };
 
   const size = 148;
@@ -141,26 +239,36 @@ export function LiveTimerHost({ className = "" }: LiveTimerHostProps) {
           <Timer className="size-4 text-teal-300" />
           Live timer
         </div>
-        <div className="flex gap-1 rounded-xl bg-slate-950 p-1 ring-1 ring-slate-700">
-          {(Object.keys(MODE_LABELS) as TimerMode[]).map((key) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => switchMode(key)}
-              className={`rounded-lg px-2.5 py-1.5 text-xs font-bold transition xl:text-sm ${
-                mode === key
-                  ? "bg-teal-500 text-slate-950"
-                  : "text-slate-400 hover:text-white"
-              }`}
-            >
-              {key === "brainstorm" ? "12-Min" : "1-Min"}
-            </button>
-          ))}
-        </div>
+        <span
+          className={`size-2 rounded-full ${channelReady ? "bg-emerald-400" : "bg-slate-600"}`}
+          title={channelReady ? "Broadcast channel ready" : "Connecting…"}
+        />
       </div>
 
-      <p className="mb-3 text-center text-sm font-semibold text-slate-400">
+      <div className="mb-3 flex flex-wrap gap-1 rounded-xl bg-slate-950 p-1 ring-1 ring-slate-700">
+        {MODE_BUTTONS.map(({ mode: key, label }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => switchMode(key)}
+            className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-bold transition xl:text-sm ${
+              mode === key
+                ? "bg-teal-500 text-slate-950"
+                : "text-slate-400 hover:text-white"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <p className="mb-1 text-center text-sm font-semibold text-slate-400">
         {MODE_LABELS[mode]}
+        {flowActive ? (
+          <span className="ml-2 rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold tracking-wide text-amber-200 uppercase">
+            Flow
+          </span>
+        ) : null}
       </p>
 
       <div className="relative mx-auto mb-4 flex size-[148px] items-center justify-center">
@@ -202,7 +310,7 @@ export function LiveTimerHost({ className = "" }: LiveTimerHostProps) {
           animate={isUrgent ? { scale: [1, 1.06, 1] } : { scale: 1 }}
           transition={isUrgent ? { duration: 0.55, repeat: Infinity } : undefined}
         >
-          {formatTime(remaining)}
+          {formatTimerClock(remaining)}
         </motion.p>
       </div>
 
@@ -223,29 +331,33 @@ export function LiveTimerHost({ className = "" }: LiveTimerHostProps) {
         />
       </div>
 
-      <div className="flex items-center justify-center gap-2">
+      <div className="flex flex-col gap-2">
         <button
           type="button"
-          onClick={() => {
-            if (remaining === 0) {
-              setRemaining(duration);
-              chimedRef.current = false;
-            }
-            setRunning((r) => !r);
-          }}
-          className="inline-flex items-center gap-2 rounded-xl bg-teal-500 px-4 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-teal-400"
+          onClick={startFullFlow}
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-amber-400"
         >
-          {running ? <Pause className="size-4" /> : <Play className="size-4" />}
-          {running ? "Pause" : "Start"}
+          <Zap className="size-4" />
+          Full 12-Min Flow
         </button>
-        <button
-          type="button"
-          onClick={reset}
-          className="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2.5 text-sm font-bold text-white ring-1 ring-slate-600 transition hover:bg-slate-700"
-        >
-          <RotateCcw className="size-4" />
-          Reset
-        </button>
+        <div className="flex items-center justify-center gap-2">
+          <button
+            type="button"
+            onClick={toggleRun}
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-500 px-4 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-teal-400"
+          >
+            {running ? <Pause className="size-4" /> : <Play className="size-4" />}
+            {running ? "Pause" : "Start"}
+          </button>
+          <button
+            type="button"
+            onClick={reset}
+            className="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2.5 text-sm font-bold text-white ring-1 ring-slate-600 transition hover:bg-slate-700"
+          >
+            <RotateCcw className="size-4" />
+            Reset
+          </button>
+        </div>
       </div>
     </div>
   );

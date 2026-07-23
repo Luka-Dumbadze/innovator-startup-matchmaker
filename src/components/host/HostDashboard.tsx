@@ -135,7 +135,7 @@ export function HostDashboard() {
         </section>
 
         <aside className="min-h-0">
-          <LiveTimerHost className="h-full" />
+          <LiveTimerHost sessionId={session.id} className="h-full" />
         </aside>
       </main>
     </div>

@@ -1,5 +1,5 @@
 /**
- * Georgian word bank + team color presets for daily session auto-fill.
+ * Georgian sector bank + keyword bank + team color presets for daily auto-fill.
  */
 
 export type TeamColorPreset = {
@@ -11,7 +11,8 @@ export type TeamPresetConfig = {
   teamNumber: number;
   name: string;
   color: string;
-  words: [string, string, string, string];
+  domain: string;
+  words: string[];
 };
 
 /** Fixed palette for the 8 morning teams (order = team_number 1…8). */
@@ -24,6 +25,27 @@ export const TEAM_COLOR_PRESETS: readonly TeamColorPreset[] = [
   { label: "Cyan", hex: "#0891B2" },
   { label: "Orange", hex: "#EA580C" },
   { label: "Pink", hex: "#DB2777" },
+] as const;
+
+/** 15+ Georgian target industries / sectors. */
+export const GEORGIAN_SECTORS: readonly string[] = [
+  "სოფლის მეურნეობა",
+  "განათლება & EdTech",
+  "ჯანდაცვა & MedTech",
+  "ტურიზმი & HORECA",
+  "ფინანსები & FinTech",
+  "ეკოლოგია & GreenTech",
+  "ტრანსპორტი & ლოგისტიკა",
+  "ენერგეტიკა",
+  "ჭკვიანი ქალაქი (Smart City)",
+  "უსაფრთხოება",
+  "კულტურა & გართობა",
+  "ელექტრონული კომერცია",
+  "მშენებლობა & უძრავი ქონება",
+  "მედია & კონტენტი",
+  "სპორტი & ჯანსაღი ცხოვრება",
+  "საკვები & FoodTech",
+  "წარმოება & ინდუსტრია",
 ] as const;
 
 /**
@@ -160,9 +182,9 @@ function shuffleInPlace<T>(items: T[]): T[] {
   return items;
 }
 
-/** Unique words drawn from the bank (falls back to cycling if bank is short). */
-function pickUniqueWords(count: number): string[] {
-  const uniqueBank = [...new Set(GEORGIAN_PRESET_WORDS)];
+/** Unique strings drawn from a bank (falls back to cycling if bank is short). */
+function pickUniqueFromBank(bank: readonly string[], count: number): string[] {
+  const uniqueBank = [...new Set(bank)];
   const pool = shuffleInPlace([...uniqueBank]);
   const picked: string[] = [];
 
@@ -180,24 +202,21 @@ function pickUniqueWords(count: number): string[] {
 }
 
 /**
- * Returns 8 team configs with fixed color presets and 4 randomized
- * Georgian words each (32 unique words when the bank allows).
+ * Returns 8 team configs with fixed color presets, 1 random sector/domain,
+ * and 3 randomized Georgian keywords each (24 unique words when the bank allows).
  */
 export function generateRandomPresets(): TeamPresetConfig[] {
-  const words = pickUniqueWords(32);
+  const domains = pickUniqueFromBank(GEORGIAN_SECTORS, 8);
+  const words = pickUniqueFromBank(GEORGIAN_PRESET_WORDS, 24);
 
   return TEAM_COLOR_PRESETS.map((preset, index) => {
-    const offset = index * 4;
+    const offset = index * 3;
     return {
       teamNumber: index + 1,
       name: preset.label,
       color: preset.hex,
-      words: [
-        words[offset]!,
-        words[offset + 1]!,
-        words[offset + 2]!,
-        words[offset + 3]!,
-      ] as [string, string, string, string],
+      domain: domains[index]!,
+      words: [words[offset]!, words[offset + 1]!, words[offset + 2]!],
     };
   });
 }

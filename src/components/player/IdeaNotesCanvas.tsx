@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Check, ClipboardCopy, Lightbulb, Sparkles } from "lucide-react";
 
-import type { Team } from "@/types/game";
 import {
   formatPitchSummary,
   getIdeaNotes,
@@ -14,13 +13,15 @@ import {
 
 type IdeaNotesCanvasProps = {
   sessionId: string;
-  words: Team["words"];
+  domain: string;
+  words: string[];
   onCopied?: (message: string) => void;
   onCopyError?: (message: string) => void;
 };
 
 export function IdeaNotesCanvas({
   sessionId,
+  domain,
   words,
   onCopied,
   onCopyError,
@@ -33,8 +34,8 @@ export function IdeaNotesCanvas({
   }, [sessionId, notes]);
 
   const pitchPreview = useMemo(
-    () => formatPitchSummary(notes, words),
-    [notes, words]
+    () => formatPitchSummary(notes, domain, words),
+    [notes, domain, words]
   );
 
   const update = <K extends keyof IdeaNotes>(key: K, value: IdeaNotes[K]) => {
@@ -72,6 +73,15 @@ export function IdeaNotesCanvas({
         </div>
       </div>
 
+      <div className="mb-4 rounded-xl bg-amber-500/10 px-3 py-2 ring-1 ring-amber-400/30">
+        <p className="text-[10px] font-bold tracking-wide text-amber-200/80 uppercase">
+          🎯 სამიზნე სფერო
+        </p>
+        <p className="font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-amber-50">
+          {domain || "—"}
+        </p>
+      </div>
+
       <div className="space-y-4">
         <label className="block">
           <span className="text-xs font-semibold tracking-wide text-slate-400 uppercase">
@@ -103,7 +113,7 @@ export function IdeaNotesCanvas({
 
         <label className="block">
           <span className="text-xs font-semibold tracking-wide text-slate-400 uppercase">
-            How 4 words are used
+            How domain + 3 keywords are used
           </span>
           <p className="mt-1 mb-1.5 font-[family-name:var(--font-noto-georgian)] text-xs text-teal-300/90">
             {words.join(" · ")}
@@ -111,7 +121,7 @@ export function IdeaNotesCanvas({
           <textarea
             value={notes.howWordsUsed}
             onChange={(e) => update("howWordsUsed", e.target.value)}
-            placeholder="Connect each word to your product idea…"
+            placeholder="Connect the sector and each keyword to your product idea…"
             rows={4}
             className={`${fieldClass} resize-y font-[family-name:var(--font-noto-georgian)]`}
           />

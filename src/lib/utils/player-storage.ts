@@ -39,8 +39,9 @@ function isTeamShape(value: unknown): value is Team {
     typeof t.team_number === "number" &&
     typeof t.name === "string" &&
     typeof t.color === "string" &&
+    typeof t.domain === "string" &&
     Array.isArray(t.words) &&
-    t.words.length === 4 &&
+    t.words.length === 3 &&
     typeof t.max_capacity === "number" &&
     typeof t.current_count === "number"
   );
@@ -98,19 +99,25 @@ export function saveIdeaNotes(sessionId: string, notes: IdeaNotes): void {
   window.localStorage.setItem(notesKey(sessionId), JSON.stringify(notes));
 }
 
-/** Formats notes + team words into a 1-minute elevator pitch. */
-export function formatPitchSummary(notes: IdeaNotes, words: Team["words"]): string {
+/** Formats notes + domain + keywords into a 1-minute elevator pitch. */
+export function formatPitchSummary(
+  notes: IdeaNotes,
+  domain: string,
+  words: string[]
+): string {
   const name = notes.startupName.trim() || "Untitled Startup";
   const problem = notes.problemSolved.trim() || "—";
   const usage = notes.howWordsUsed.trim() || "—";
+  const sector = domain.trim() || "—";
   const wordLine = words.join(" · ");
 
   return [
     `🚀 ${name}`,
     "",
+    `🎯 Target industry: ${sector}`,
     `Problem: ${problem}`,
     "",
-    `Our 4 words: ${wordLine}`,
+    `🔑 Keywords: ${wordLine}`,
     `How we use them: ${usage}`,
   ].join("\n");
 }

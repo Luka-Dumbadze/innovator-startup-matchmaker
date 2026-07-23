@@ -42,6 +42,7 @@ export type Database = {
           team_number: number;
           name: string;
           color: string;
+          domain: string;
           words: string[];
           max_capacity: number;
           current_count: number;
@@ -52,6 +53,7 @@ export type Database = {
           team_number: number;
           name: string;
           color: string;
+          domain?: string;
           words: string[];
           max_capacity?: number;
           current_count?: number;
@@ -62,6 +64,7 @@ export type Database = {
           team_number?: number;
           name?: string;
           color?: string;
+          domain?: string;
           words?: string[];
           max_capacity?: number;
           current_count?: number;
@@ -131,6 +134,7 @@ export type Database = {
           team_number: number;
           name: string;
           color: string;
+          domain: string;
           words: string[];
           max_capacity: number;
           current_count: number;
@@ -146,15 +150,24 @@ export type Database = {
   };
 };
 
-/** Narrow RPC row → domain Team (words tuple). */
-export function toTeam(row: Database["public"]["Functions"]["assign_player_atomically"]["Returns"]): Team {
-  if (!row.words || row.words.length !== 4) {
-    throw new Error(`Team ${row.id} must have exactly 4 words`);
+/** Narrow RPC/table row → domain Team. */
+export function toTeam(
+  row: Database["public"]["Functions"]["assign_player_atomically"]["Returns"]
+): Team {
+  if (!row.words || row.words.length !== 3) {
+    throw new Error(`Team ${row.id} must have exactly 3 keywords`);
   }
 
   return {
-    ...row,
-    words: [row.words[0], row.words[1], row.words[2], row.words[3]],
+    id: row.id,
+    session_id: row.session_id,
+    team_number: row.team_number,
+    name: row.name,
+    color: row.color,
+    domain: (row.domain ?? "").trim(),
+    words: row.words,
+    max_capacity: row.max_capacity,
+    current_count: row.current_count,
   };
 }
 

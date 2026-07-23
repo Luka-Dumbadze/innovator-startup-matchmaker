@@ -1,8 +1,9 @@
 /**
  * Core domain types for Startup Matchmaker.
  *
- * Daily flow: mentors activate one DailySession → 8 Teams (4 keywords each) →
- * up to 40 students join via QR and are atomically assigned to an open slot.
+ * Daily flow: mentors activate one DailySession → 8 Teams
+ * (1 target domain + 3 keywords each) → up to 40 students join via QR
+ * and are atomically assigned to an open slot.
  */
 
 /** One morning's matchmaking window. Only one session should be active at a time. */
@@ -25,8 +26,10 @@ export interface Team {
   team_number: number;
   name: string;
   color: string;
-  /** Exactly four custom keywords shown to students on that team. */
-  words: [string, string, string, string];
+  /** Target industry / sector for ideation (Georgian label). */
+  domain: string;
+  /** Exactly three keywords shown to students on that team. */
+  words: string[];
   max_capacity: number;
   current_count: number;
 }

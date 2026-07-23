@@ -83,11 +83,17 @@ export function TeamHostCard({ team, justJoined = false }: TeamHostCardProps) {
         )}
       </div>
 
-      <ul className="relative mb-4 grid flex-1 grid-cols-2 gap-1.5">
+      <div className="relative mb-3 rounded-xl bg-amber-500/15 px-3 py-2 ring-1 ring-amber-400/40">
+        <p className="truncate font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-amber-100 xl:text-base">
+          🎯 სფერო: {team.domain || "—"}
+        </p>
+      </div>
+
+      <ul className="relative mb-4 grid flex-1 grid-cols-3 gap-1.5">
         {team.words.map((word) => (
           <li
             key={word}
-            className="truncate rounded-lg bg-slate-950/70 px-2 py-1.5 text-center font-[family-name:var(--font-noto-georgian)] text-sm font-semibold text-slate-100 ring-1 ring-slate-700/80 xl:text-base"
+            className="truncate rounded-lg bg-slate-950/70 px-1.5 py-1.5 text-center font-[family-name:var(--font-noto-georgian)] text-xs font-semibold text-slate-100 ring-1 ring-slate-700/80 xl:text-sm"
             title={word}
           >
             {word}

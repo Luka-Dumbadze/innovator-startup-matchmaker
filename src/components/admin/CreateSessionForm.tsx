@@ -20,6 +20,7 @@ function toDraft(presets: TeamPresetConfig[]): TeamDraftInput[] {
     teamNumber: p.teamNumber,
     name: p.name,
     color: p.color,
+    domain: p.domain,
     words: [...p.words],
   }));
 }
@@ -29,7 +30,8 @@ function defaultTeams(): TeamDraftInput[] {
     teamNumber: index + 1,
     name: preset.label,
     color: preset.hex,
-    words: ["", "", "", ""],
+    domain: "",
+    words: ["", "", ""],
   }));
 }
 
@@ -43,7 +45,7 @@ export function CreateSessionForm() {
   const autoFill = () => {
     const presets = generateRandomPresets();
     setTeams(toDraft(presets));
-    push("Filled 8 teams with random Georgian words", "success");
+    push("Filled 8 teams with domains + keywords", "success");
   };
 
   const updateTeam = (index: number, patch: Partial<TeamDraftInput>) => {
@@ -127,6 +129,21 @@ export function CreateSessionForm() {
                 T{team.teamNumber}
               </span>
             </div>
+
+            <label className="mb-2 block">
+              <span className="mb-1 inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-amber-800 uppercase">
+                🎯 Domain
+              </span>
+              <input
+                type="text"
+                value={team.domain}
+                onChange={(e) => updateTeam(teamIndex, { domain: e.target.value })}
+                placeholder="სამიზნე სფერო"
+                className="w-full rounded-lg border border-amber-200 bg-amber-50/80 px-2.5 py-1.5 font-[family-name:var(--font-noto-georgian)] text-sm font-semibold text-slate-900 outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/40"
+                required
+              />
+            </label>
+
             <div className="grid gap-1.5">
               {team.words.map((word, wordIndex) => (
                 <input
@@ -134,7 +151,7 @@ export function CreateSessionForm() {
                   type="text"
                   value={word}
                   onChange={(e) => updateWord(teamIndex, wordIndex, e.target.value)}
-                  placeholder={`Word ${wordIndex + 1}`}
+                  placeholder={`Keyword ${wordIndex + 1}`}
                   className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-[family-name:var(--font-noto-georgian)] text-sm text-slate-800 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/30"
                   required
                 />

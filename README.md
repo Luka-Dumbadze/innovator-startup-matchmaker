@@ -8,7 +8,7 @@
 [![Vitest](https://img.shields.io/badge/Vitest-Unit%20Tests-6E9F18?logo=vitest&logoColor=white)](https://vitest.dev/)
 [![Framer Motion](https://img.shields.io/badge/Framer_Motion-12-0055FF?logo=framer&logoColor=white)](https://www.framer.com/motion/)
 
-Production-grade web platform for an **Innovation Summer School**: every morning mentors activate a daily session with 8 teams × 4 Georgian keywords; up to **40 students** scan a QR code and are **atomically seated** without race conditions; a hall TV stays in sync over **Supabase Realtime**.
+Production-grade web platform for an **Innovation Summer School**: every morning mentors activate a daily session with 8 teams × **1 target domain + 3 keywords**; up to **40 students** scan a QR code and are **atomically seated** without race conditions; a hall TV stays in sync over **Supabase Realtime**.
 
 | Surface | Route | Audience |
 |---------|-------|----------|
@@ -52,7 +52,7 @@ flowchart LR
 - **PostgreSQL atomic row locking** — `assign_player_atomically` locks all session team rows with `SELECT … FOR UPDATE` (stable `team_number` order to avoid deadlocks), then seats the player on a **random open team** (`ORDER BY RANDOM()`), increments capacity, and inserts the assignment in one transaction. Designed for **40 concurrent QR scans** with zero oversell.
 - **Idempotent re-joins** — unique `(session_id, player_uid)` plus early existence check; twin requests that race the insert are reconciled via `unique_violation` handling.
 - **Sub-100ms hall sync** — Host view subscribes to Realtime on `teams` / `player_assignments` so occupancy and join pulses update as students land.
-- **Daily word management** — Admin can auto-fill 8 teams from a Georgian preset bank or edit words manually, then activate a session for the morning.
+- **Daily word management** — Admin can auto-fill 8 teams with a Georgian **sector/domain** + **3 keywords**, or edit them manually, then activate a session for the morning.
 - **Client resilience** — Persistent anonymous `player_uid` and cached assignment / idea notes in `localStorage` keep refresh/rescan UX smooth without double-consuming seats.
 
 ---

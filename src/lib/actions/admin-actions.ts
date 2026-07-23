@@ -9,6 +9,7 @@ export type TeamDraftInput = {
   teamNumber: number;
   name: string;
   color: string;
+  domain: string;
   words: string[];
 };
 
@@ -22,12 +23,12 @@ export type ActiveSessionSnapshot = {
   totalJoined: number;
 };
 
-function asFourWords(words: string[]): [string, string, string, string] {
+function asThreeWords(words: string[]): string[] {
   const trimmed = words.map((w) => w.trim()).filter(Boolean);
-  if (trimmed.length !== 4) {
-    throw new Error("Each team must have exactly 4 non-empty words");
+  if (trimmed.length !== 3) {
+    throw new Error("Each team must have exactly 3 non-empty keywords");
   }
-  return [trimmed[0]!, trimmed[1]!, trimmed[2]!, trimmed[3]!];
+  return trimmed;
 }
 
 function mapTeam(row: {
@@ -36,6 +37,7 @@ function mapTeam(row: {
   team_number: number;
   name: string;
   color: string;
+  domain?: string | null;
   words: string[];
   max_capacity: number;
   current_count: number;
@@ -46,7 +48,8 @@ function mapTeam(row: {
     team_number: row.team_number,
     name: row.name,
     color: row.color,
-    words: asFourWords(row.words),
+    domain: (row.domain ?? "").trim(),
+    words: asThreeWords(row.words),
     max_capacity: row.max_capacity,
     current_count: row.current_count,
   };
@@ -68,10 +71,13 @@ function validateTeams(teams: TeamDraftInput[]): void {
     if (!team.name.trim()) {
       throw new Error(`Team ${team.teamNumber} needs a name`);
     }
+    if (!team.domain.trim()) {
+      throw new Error(`Team ${team.teamNumber} needs a target domain`);
+    }
     if (!/^#[0-9A-Fa-f]{6}$/.test(team.color)) {
       throw new Error(`Team ${team.teamNumber} color must be a hex like #2563EB`);
     }
-    asFourWords(team.words);
+    asThreeWords(team.words);
   }
 }
 
@@ -128,7 +134,8 @@ export async function createAndActivateSession(
         team_number: team.teamNumber,
         name: team.name.trim(),
         color: team.color,
-        words: asFourWords(team.words),
+        domain: team.domain.trim(),
+        words: asThreeWords(team.words),
         max_capacity: 5,
         current_count: 0,
       }));

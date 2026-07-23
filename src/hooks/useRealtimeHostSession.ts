@@ -25,6 +25,7 @@ type TeamRow = {
   team_number: number;
   name: string;
   color: string;
+  domain: string;
   words: string[];
   max_capacity: number;
   current_count: number;

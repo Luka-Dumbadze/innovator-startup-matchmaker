@@ -21,11 +21,13 @@ describe("generateRandomPresets", () => {
     expect(numbers).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
-  it("gives each team exactly 4 non-empty words", () => {
+  it("gives each team 1 non-empty domain and exactly 3 keywords", () => {
     const teams = generateRandomPresets();
 
     for (const team of teams) {
-      expect(team.words).toHaveLength(4);
+      expect(typeof team.domain).toBe("string");
+      expect(team.domain.trim().length).toBeGreaterThan(0);
+      expect(team.words).toHaveLength(3);
       for (const word of team.words) {
         expect(typeof word).toBe("string");
         expect(word.trim().length).toBeGreaterThan(0);
@@ -33,10 +35,13 @@ describe("generateRandomPresets", () => {
     }
   });
 
-  it("uses unique words across all teams when the bank allows", () => {
+  it("uses unique domains and unique words across teams when banks allow", () => {
     const teams = generateRandomPresets();
+    const domains = teams.map((t) => t.domain);
     const allWords = teams.flatMap((t) => t.words);
-    expect(allWords).toHaveLength(32);
-    expect(new Set(allWords).size).toBe(32);
+
+    expect(new Set(domains).size).toBe(8);
+    expect(allWords).toHaveLength(24);
+    expect(new Set(allWords).size).toBe(24);
   });
 });
