@@ -10,19 +10,23 @@ import {
 } from "@/lib/supabase/client";
 import {
   getOrCreatePlayerUid,
+  getPlayerProfile,
   getSavedAssignment,
   saveAssignment,
+  savePlayerProfile,
 } from "@/lib/utils/player-storage";
-import type { DailySession, Team } from "@/types/game";
+import type { DailySession, PlayerProfile, Team } from "@/types/game";
 import { AssignedTeamView } from "@/components/player/AssignedTeamView";
 import { NoActiveSessionView } from "@/components/player/NoActiveSessionView";
+import { OnboardingModal } from "@/components/player/OnboardingModal";
 import { SessionFullView } from "@/components/player/SessionFullView";
 
 type PlayerPhase =
   | { status: "loading" }
   | { status: "no_session" }
+  | { status: "needs_onboarding"; session: DailySession; initialProfile: PlayerProfile | null }
   | { status: "session_full"; session: DailySession }
-  | { status: "assigned"; session: DailySession; team: Team }
+  | { status: "assigned"; session: DailySession; team: Team; profile: PlayerProfile }
   | { status: "error"; message: string };
 
 type ToastItem = {
@@ -97,10 +101,8 @@ function PlayerToastStack({
   );
 }
 
-async function resolvePlayerPhase(): Promise<PlayerPhase> {
+async function fetchActiveSession(): Promise<DailySession | null> {
   const supabase = createBrowserSupabaseClient();
-  const playerUid = getOrCreatePlayerUid();
-
   const { data: session, error: sessionError } = await supabase
     .from("daily_sessions")
     .select("*")
@@ -111,25 +113,31 @@ async function resolvePlayerPhase(): Promise<PlayerPhase> {
     throw new Error(sessionError.message);
   }
 
-  if (!session) {
-    return { status: "no_session" };
-  }
+  return session;
+}
 
+async function assignWithProfile(
+  session: DailySession,
+  profile: PlayerProfile
+): Promise<PlayerPhase> {
+  const playerUid = getOrCreatePlayerUid();
   const cached = getSavedAssignment(session.id);
 
   try {
     const team = await assignPlayerAtomically({
       p_session_id: session.id,
       p_player_uid: playerUid,
+      p_real_name: profile.realName,
+      p_nickname: profile.nickname,
     });
     saveAssignment(session.id, team);
-    return { status: "assigned", session, team };
+    return { status: "assigned", session, team, profile };
   } catch (assignErr) {
     const message = assignErr instanceof Error ? assignErr.message : "Assignment failed";
 
     if (isSessionFullError(message)) {
       if (cached && cached.session_id === session.id) {
-        return { status: "assigned", session, team: cached };
+        return { status: "assigned", session, team: cached, profile };
       }
       return { status: "session_full", session };
     }
@@ -138,9 +146,25 @@ async function resolvePlayerPhase(): Promise<PlayerPhase> {
   }
 }
 
+async function resolvePlayerPhase(): Promise<PlayerPhase> {
+  const session = await fetchActiveSession();
+
+  if (!session) {
+    return { status: "no_session" };
+  }
+
+  const profile = getPlayerProfile();
+  if (!profile) {
+    return { status: "needs_onboarding", session, initialProfile: null };
+  }
+
+  return assignWithProfile(session, profile);
+}
+
 export function PlayerContainer() {
   const [phase, setPhase] = useState<PlayerPhase>({ status: "loading" });
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [onboardingBusy, setOnboardingBusy] = useState(false);
   const joiningRef = useRef(false);
 
   const pushToast = useCallback((message: string, tone: "success" | "error" = "success") => {
@@ -204,6 +228,21 @@ export function PlayerContainer() {
     void runJoin();
   };
 
+  const handleOnboarding = async (profile: PlayerProfile) => {
+    if (phase.status !== "needs_onboarding") return;
+    setOnboardingBusy(true);
+    try {
+      savePlayerProfile(profile);
+      const next = await assignWithProfile(phase.session, profile);
+      setPhase(next);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong";
+      setPhase({ status: "error", message });
+    } finally {
+      setOnboardingBusy(false);
+    }
+  };
+
   return (
     <>
       <AnimatePresence mode="wait">
@@ -215,6 +254,21 @@ export function PlayerContainer() {
             exit={{ opacity: 0 }}
           >
             <PlayerAssignmentSkeleton />
+          </motion.div>
+        ) : null}
+
+        {phase.status === "needs_onboarding" ? (
+          <motion.div
+            key="onboarding"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <OnboardingModal
+              initial={phase.initialProfile}
+              busy={onboardingBusy}
+              onSubmit={handleOnboarding}
+            />
           </motion.div>
         ) : null}
 
@@ -253,6 +307,7 @@ export function PlayerContainer() {
             <AssignedTeamView
               session={phase.session}
               team={phase.team}
+              profile={phase.profile}
               onToast={pushToast}
             />
           </motion.div>

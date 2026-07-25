@@ -1,20 +1,18 @@
-import type { Team } from "@/types/game";
+import type { IdeaNotes, PlayerProfile, Team } from "@/types/game";
 
 const PLAYER_UID_KEY = "smm_player_uid";
+const PLAYER_PROFILE_KEY = "smm_player_profile";
 const assignmentKey = (sessionId: string) => `smm_assignment:${sessionId}`;
 const notesKey = (sessionId: string) => `smm_idea_notes:${sessionId}`;
+const foundationKey = (sessionId: string) => `smm_team_foundation:${sessionId}`;
+const submittedKey = (sessionId: string) => `smm_submitted_pitch:${sessionId}`;
 
-/** Local brainstorm scratchpad for a daily session. */
-export type IdeaNotes = {
-  startupName: string;
-  problemSolved: string;
-  howWordsUsed: string;
-};
+export const IDEA_FIELD_MAX = 140;
 
 export const EMPTY_IDEA_NOTES: IdeaNotes = {
   startupName: "",
-  problemSolved: "",
-  howWordsUsed: "",
+  oneSentenceSolution: "",
+  toolsIntegration: "",
 };
 
 function canUseStorage(): boolean {
@@ -47,14 +45,52 @@ function isTeamShape(value: unknown): value is Team {
   );
 }
 
-function isIdeaNotesShape(value: unknown): value is IdeaNotes {
-  if (!value || typeof value !== "object") return false;
-  const n = value as Partial<IdeaNotes>;
-  return (
+function normalizeIdeaNotes(value: unknown): IdeaNotes | null {
+  if (!value || typeof value !== "object") return null;
+  const n = value as Record<string, unknown>;
+
+  // New shape
+  if (
+    typeof n.startupName === "string" &&
+    typeof n.oneSentenceSolution === "string" &&
+    typeof n.toolsIntegration === "string"
+  ) {
+    return {
+      startupName: n.startupName,
+      oneSentenceSolution: n.oneSentenceSolution,
+      toolsIntegration: n.toolsIntegration,
+    };
+  }
+
+  // Legacy free-text shape
+  if (
     typeof n.startupName === "string" &&
     typeof n.problemSolved === "string" &&
     typeof n.howWordsUsed === "string"
+  ) {
+    return {
+      startupName: n.startupName,
+      oneSentenceSolution: n.problemSolved,
+      toolsIntegration: n.howWordsUsed,
+    };
+  }
+
+  return null;
+}
+
+function isProfileShape(value: unknown): value is PlayerProfile {
+  if (!value || typeof value !== "object") return false;
+  const p = value as Partial<PlayerProfile>;
+  return (
+    typeof p.realName === "string" &&
+    p.realName.trim().length > 0 &&
+    typeof p.nickname === "string" &&
+    p.nickname.trim().length > 0
   );
+}
+
+export function clampIdeaField(value: string): string {
+  return value.slice(0, IDEA_FIELD_MAX);
 }
 
 /**
@@ -76,6 +112,21 @@ export function getOrCreatePlayerUid(): string {
   return uid;
 }
 
+export function getPlayerProfile(): PlayerProfile | null {
+  if (!canUseStorage()) return null;
+  const parsed = safeParse<unknown>(window.localStorage.getItem(PLAYER_PROFILE_KEY));
+  return isProfileShape(parsed) ? parsed : null;
+}
+
+export function savePlayerProfile(profile: PlayerProfile): void {
+  if (!canUseStorage()) return;
+  const cleaned: PlayerProfile = {
+    realName: profile.realName.trim(),
+    nickname: profile.nickname.trim(),
+  };
+  window.localStorage.setItem(PLAYER_PROFILE_KEY, JSON.stringify(cleaned));
+}
+
 /** Cached team assignment for a session (optimistic UX + offline recall). */
 export function getSavedAssignment(sessionId: string): Team | null {
   if (!canUseStorage() || !sessionId) return null;
@@ -90,24 +141,54 @@ export function saveAssignment(sessionId: string, teamData: Team): void {
 
 export function getIdeaNotes(sessionId: string): IdeaNotes {
   if (!canUseStorage() || !sessionId) return { ...EMPTY_IDEA_NOTES };
-  const parsed = safeParse<unknown>(window.localStorage.getItem(notesKey(sessionId)));
-  return isIdeaNotesShape(parsed) ? parsed : { ...EMPTY_IDEA_NOTES };
+  const normalized = normalizeIdeaNotes(
+    safeParse<unknown>(window.localStorage.getItem(notesKey(sessionId)))
+  );
+  return normalized ?? { ...EMPTY_IDEA_NOTES };
 }
 
 export function saveIdeaNotes(sessionId: string, notes: IdeaNotes): void {
   if (!canUseStorage() || !sessionId) return;
-  window.localStorage.setItem(notesKey(sessionId), JSON.stringify(notes));
+  const clamped: IdeaNotes = {
+    startupName: clampIdeaField(notes.startupName),
+    oneSentenceSolution: clampIdeaField(notes.oneSentenceSolution),
+    toolsIntegration: clampIdeaField(notes.toolsIntegration),
+  };
+  window.localStorage.setItem(notesKey(sessionId), JSON.stringify(clamped));
 }
 
-/** Formats notes + domain + keywords into a 1-minute elevator pitch. */
+export function getTeamFoundation(sessionId: string): IdeaNotes | null {
+  if (!canUseStorage() || !sessionId) return null;
+  return normalizeIdeaNotes(
+    safeParse<unknown>(window.localStorage.getItem(foundationKey(sessionId)))
+  );
+}
+
+export function saveTeamFoundation(sessionId: string, notes: IdeaNotes): void {
+  if (!canUseStorage() || !sessionId) return;
+  window.localStorage.setItem(foundationKey(sessionId), JSON.stringify(notes));
+  saveIdeaNotes(sessionId, notes);
+}
+
+export function markPitchSubmitted(sessionId: string): void {
+  if (!canUseStorage() || !sessionId) return;
+  window.localStorage.setItem(submittedKey(sessionId), "1");
+}
+
+export function isPitchSubmitted(sessionId: string): boolean {
+  if (!canUseStorage() || !sessionId) return false;
+  return window.localStorage.getItem(submittedKey(sessionId)) === "1";
+}
+
+/** Formats structured idea + domain + keywords into a 1-minute elevator pitch. */
 export function formatPitchSummary(
   notes: IdeaNotes,
   domain: string,
   words: string[]
 ): string {
   const name = notes.startupName.trim() || "Untitled Startup";
-  const problem = notes.problemSolved.trim() || "—";
-  const usage = notes.howWordsUsed.trim() || "—";
+  const solution = notes.oneSentenceSolution.trim() || "—";
+  const tools = notes.toolsIntegration.trim() || "—";
   const sector = domain.trim() || "—";
   const wordLine = words.join(" · ");
 
@@ -115,9 +196,13 @@ export function formatPitchSummary(
     `🚀 ${name}`,
     "",
     `🎯 Target industry: ${sector}`,
-    `Problem: ${problem}`,
+    `1-sentence solution: ${solution}`,
     "",
     `🔑 Keywords: ${wordLine}`,
-    `How we use them: ${usage}`,
+    `3 tools integration: ${tools}`,
   ].join("\n");
+}
+
+export function teamIdeasChannelName(sessionId: string, teamId: string): string {
+  return `team-ideas-${sessionId}-${teamId}`;
 }

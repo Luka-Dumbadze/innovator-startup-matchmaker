@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 import { toTeam, type AssignPlayerParams, type AssignPlayerResult, type Database } from "./types";
+import type { IdeaNotes } from "@/types/game";
 
 /**
  * Browser Supabase client (singleton).
@@ -47,6 +48,8 @@ export async function assignPlayerAtomically(
   const { data, error } = await supabase.rpc("assign_player_atomically", {
     p_session_id: params.p_session_id,
     p_player_uid: params.p_player_uid,
+    p_real_name: params.p_real_name,
+    p_nickname: params.p_nickname,
   });
 
   if (error) {
@@ -58,4 +61,51 @@ export async function assignPlayerAtomically(
   }
 
   return toTeam(data);
+}
+
+/** Upsert the team's final pitch at the end of the 12-minute flow. */
+export async function submitFinalTeamPitch(input: {
+  sessionId: string;
+  teamId: string;
+  playerUid: string;
+  nickname: string;
+  notes: IdeaNotes;
+}): Promise<void> {
+  const supabase = createBrowserSupabaseClient();
+
+  const row = {
+    session_id: input.sessionId,
+    team_id: input.teamId,
+    author_player_uid: input.playerUid,
+    author_nickname: input.nickname,
+    startup_name: input.notes.startupName.trim() || "Untitled Startup",
+    one_sentence_solution: input.notes.oneSentenceSolution.trim() || "—",
+    tools_integration: input.notes.toolsIntegration.trim() || "—",
+    is_final_team_pitch: true,
+  };
+
+  // Prefer update of existing final pitch for this team; otherwise insert.
+  const { data: existing, error: lookupError } = await supabase
+    .from("submitted_ideas")
+    .select("id")
+    .eq("session_id", input.sessionId)
+    .eq("team_id", input.teamId)
+    .eq("is_final_team_pitch", true)
+    .maybeSingle();
+
+  if (lookupError) {
+    throw new Error(lookupError.message);
+  }
+
+  if (existing?.id) {
+    const { error } = await supabase
+      .from("submitted_ideas")
+      .update(row)
+      .eq("id", existing.id);
+    if (error) throw new Error(error.message);
+    return;
+  }
+
+  const { error } = await supabase.from("submitted_ideas").insert(row);
+  if (error) throw new Error(error.message);
 }

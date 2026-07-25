@@ -1,20 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Check, ClipboardCopy, Lightbulb, Sparkles } from "lucide-react";
+import { Check, ClipboardCopy, Lightbulb, Lock, Sparkles } from "lucide-react";
 
+import type { IdeaNotes } from "@/types/game";
 import {
+  IDEA_FIELD_MAX,
+  clampIdeaField,
   formatPitchSummary,
   getIdeaNotes,
   saveIdeaNotes,
-  type IdeaNotes,
 } from "@/lib/utils/player-storage";
 
 type IdeaNotesCanvasProps = {
   sessionId: string;
   domain: string;
   words: string[];
+  locked?: boolean;
+  /** When set (e.g. “Use as Team Foundation”), replaces the local draft. */
+  externalNotes?: IdeaNotes | null;
+  onNotesChange?: (notes: IdeaNotes) => void;
   onCopied?: (message: string) => void;
   onCopyError?: (message: string) => void;
 };
@@ -23,15 +29,29 @@ export function IdeaNotesCanvas({
   sessionId,
   domain,
   words,
+  locked = false,
+  externalNotes = null,
+  onNotesChange,
   onCopied,
   onCopyError,
 }: IdeaNotesCanvasProps) {
   const [notes, setNotes] = useState<IdeaNotes>(() => getIdeaNotes(sessionId));
   const [copied, setCopied] = useState(false);
+  const onNotesChangeRef = useRef(onNotesChange);
+  onNotesChangeRef.current = onNotesChange;
 
   useEffect(() => {
+    if (!externalNotes) return;
+    setNotes(externalNotes);
+    saveIdeaNotes(sessionId, externalNotes);
+    onNotesChangeRef.current?.(externalNotes);
+  }, [externalNotes, sessionId]);
+
+  useEffect(() => {
+    if (locked) return;
     saveIdeaNotes(sessionId, notes);
-  }, [sessionId, notes]);
+    onNotesChangeRef.current?.(notes);
+  }, [sessionId, notes, locked]);
 
   const pitchPreview = useMemo(
     () => formatPitchSummary(notes, domain, words),
@@ -39,7 +59,8 @@ export function IdeaNotesCanvas({
   );
 
   const update = <K extends keyof IdeaNotes>(key: K, value: IdeaNotes[K]) => {
-    setNotes((prev) => ({ ...prev, [key]: value }));
+    if (locked) return;
+    setNotes((prev) => ({ ...prev, [key]: clampIdeaField(value) }));
   };
 
   const copyPitch = async () => {
@@ -54,7 +75,7 @@ export function IdeaNotesCanvas({
   };
 
   const fieldClass =
-    "mt-1.5 w-full rounded-xl border border-slate-700 bg-slate-950/80 px-3.5 py-3 text-base text-white outline-none transition placeholder:text-slate-500 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/30";
+    "mt-1.5 w-full rounded-xl border border-slate-700 bg-slate-950/80 px-3.5 py-3 text-base text-white outline-none transition placeholder:text-slate-500 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/30 disabled:cursor-not-allowed disabled:opacity-60";
 
   return (
     <motion.section
@@ -65,11 +86,17 @@ export function IdeaNotesCanvas({
     >
       <div className="mb-4 flex items-center gap-2">
         <div className="flex size-9 items-center justify-center rounded-xl bg-amber-500/15 text-amber-300">
-          <Lightbulb className="size-4" />
+          {locked ? <Lock className="size-4" /> : <Lightbulb className="size-4" />}
         </div>
         <div>
-          <h2 className="text-base font-bold text-white">Idea scratchpad</h2>
-          <p className="text-xs text-slate-400">Autosaves on this phone · 12-min brainstorm</p>
+          <h2 className="text-base font-bold text-white">
+            {locked ? "Locked pitch draft" : "Idea micro-form"}
+          </h2>
+          <p className="text-xs text-slate-400">
+            {locked
+              ? "Inputs locked after time expired"
+              : "Autosaves locally · max 140 chars each"}
+          </p>
         </div>
       </div>
 
@@ -84,45 +111,59 @@ export function IdeaNotesCanvas({
 
       <div className="space-y-4">
         <label className="block">
-          <span className="text-xs font-semibold tracking-wide text-slate-400 uppercase">
-            Startup name
+          <span className="flex items-center justify-between gap-2 text-xs font-semibold tracking-wide text-slate-400 uppercase">
+            <span>🏷️ Startup Name / Title</span>
+            <span className="tabular-nums text-[10px] normal-case text-slate-500">
+              {notes.startupName.length}/{IDEA_FIELD_MAX}
+            </span>
           </span>
           <input
             type="text"
             value={notes.startupName}
             onChange={(e) => update("startupName", e.target.value)}
             placeholder="e.g. SolarLink"
+            maxLength={IDEA_FIELD_MAX}
+            disabled={locked}
             className={fieldClass}
             autoComplete="off"
-            enterKeyHint="next"
           />
         </label>
 
         <label className="block">
-          <span className="text-xs font-semibold tracking-wide text-slate-400 uppercase">
-            Problem solved
+          <span className="flex items-center justify-between gap-2 text-xs font-semibold tracking-wide text-slate-400 uppercase">
+            <span>🎯 1-Sentence Solution</span>
+            <span className="tabular-nums text-[10px] normal-case text-slate-500">
+              {notes.oneSentenceSolution.length}/{IDEA_FIELD_MAX}
+            </span>
           </span>
           <textarea
-            value={notes.problemSolved}
-            onChange={(e) => update("problemSolved", e.target.value)}
-            placeholder="Who hurts, and why now?"
+            value={notes.oneSentenceSolution}
+            onChange={(e) => update("oneSentenceSolution", e.target.value)}
+            placeholder="How you address the global challenge in one line…"
+            maxLength={IDEA_FIELD_MAX}
             rows={3}
+            disabled={locked}
             className={`${fieldClass} resize-y`}
           />
         </label>
 
         <label className="block">
-          <span className="text-xs font-semibold tracking-wide text-slate-400 uppercase">
-            How domain + 3 keywords are used
+          <span className="flex items-center justify-between gap-2 text-xs font-semibold tracking-wide text-slate-400 uppercase">
+            <span>🔑 3 Tools Integration</span>
+            <span className="tabular-nums text-[10px] normal-case text-slate-500">
+              {notes.toolsIntegration.length}/{IDEA_FIELD_MAX}
+            </span>
           </span>
           <p className="mt-1 mb-1.5 font-[family-name:var(--font-noto-georgian)] text-xs text-teal-300/90">
             {words.join(" · ")}
           </p>
           <textarea
-            value={notes.howWordsUsed}
-            onChange={(e) => update("howWordsUsed", e.target.value)}
-            placeholder="Connect the sector and each keyword to your product idea…"
-            rows={4}
+            value={notes.toolsIntegration}
+            onChange={(e) => update("toolsIntegration", e.target.value)}
+            placeholder="How the 3 components combine into your product…"
+            maxLength={IDEA_FIELD_MAX}
+            rows={3}
+            disabled={locked}
             className={`${fieldClass} resize-y font-[family-name:var(--font-noto-georgian)]`}
           />
         </label>

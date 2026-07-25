@@ -1,13 +1,16 @@
 "use client";
 
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Timer, Users, X } from "lucide-react";
 
-import type { DailySession, Team } from "@/types/game";
+import type { DailySession, IdeaNotes, PlayerProfile, Team } from "@/types/game";
+import { ElevatorPitchView } from "@/components/player/ElevatorPitchView";
 import { IdeaNotesCanvas } from "@/components/player/IdeaNotesCanvas";
+import { TeamIdeaHub } from "@/components/player/TeamIdeaHub";
 import { TimerExpiredModal } from "@/components/player/TimerExpiredModal";
 import { useSessionTimerSync } from "@/hooks/useSessionTimerSync";
+import { submitFinalTeamPitch } from "@/lib/supabase/client";
 import {
   MODE_SECONDS,
   MODE_SHORT_LABELS,
@@ -15,10 +18,18 @@ import {
   formatTimerClock,
   type TimerMode,
 } from "@/lib/timer/session-timer";
+import {
+  getIdeaNotes,
+  getOrCreatePlayerUid,
+  isPitchSubmitted,
+  markPitchSubmitted,
+  saveTeamFoundation,
+} from "@/lib/utils/player-storage";
 
 type AssignedTeamViewProps = {
   session: DailySession;
   team: Team;
+  profile: PlayerProfile;
   onToast?: (message: string, tone?: "success" | "error") => void;
 };
 
@@ -43,11 +54,39 @@ const BANNER_STYLES: Record<
   },
 };
 
-export function AssignedTeamView({ session, team, onToast }: AssignedTeamViewProps) {
+export function AssignedTeamView({
+  session,
+  team,
+  profile,
+  onToast,
+}: AssignedTeamViewProps) {
   const isFull = team.current_count >= team.max_capacity;
   const timer = useSessionTimerSync(session.id);
   const guidance = PHASE_GUIDANCE[timer.mode];
   const bannerStyle = BANNER_STYLES[timer.mode];
+
+  const playerUid = useRef(getOrCreatePlayerUid()).current;
+  const [localNotes, setLocalNotes] = useState<IdeaNotes>(() => getIdeaNotes(session.id));
+  const [foundationNotes, setFoundationNotes] = useState<IdeaNotes | null>(null);
+  const [locked, setLocked] = useState(() => isPitchSubmitted(session.id));
+  const [submitted, setSubmitted] = useState(() => isPitchSubmitted(session.id));
+  const submittingRef = useRef(false);
+  const localNotesRef = useRef(localNotes);
+  localNotesRef.current = localNotes;
+
+  const onNotesChange = useCallback((notes: IdeaNotes) => {
+    setLocalNotes(notes);
+  }, []);
+
+  const useAsFoundation = useCallback(
+    (idea: IdeaNotes) => {
+      saveTeamFoundation(session.id, idea);
+      setFoundationNotes({ ...idea });
+      setLocalNotes(idea);
+      onToast?.(`Using ${idea.startupName.trim() || "teammate"} idea as foundation`, "success");
+    },
+    [onToast, session.id]
+  );
 
   // Unlock audio context on first user gesture so alarm / chimes can play later.
   useEffect(() => {
@@ -73,9 +112,56 @@ export function AssignedTeamView({ session, team, onToast }: AssignedTeamViewPro
     };
   }, []);
 
+  // Auto-submit when the 12-min team phase hits 00:00 / TIMER_EXPIRED,
+  // or when the host advances into the 1-minute pitch window.
+  useEffect(() => {
+    const timedOut =
+      timer.expiredAlert || (timer.secondsRemaining === 0 && !timer.running);
+    const pitchPhase = timer.mode === "pitch";
+    if (!timedOut && !pitchPhase) return;
+    if (timer.mode === "solo_brainstorm") return;
+    if (submitted || submittingRef.current) return;
+
+    submittingRef.current = true;
+    setLocked(true);
+
+    const notes = localNotesRef.current;
+
+    void (async () => {
+      try {
+        await submitFinalTeamPitch({
+          sessionId: session.id,
+          teamId: team.id,
+          playerUid,
+          nickname: profile.nickname,
+          notes,
+        });
+        markPitchSubmitted(session.id);
+        setSubmitted(true);
+        onToast?.("Team pitch auto-submitted", "success");
+      } catch (err) {
+        submittingRef.current = false;
+        const message = err instanceof Error ? err.message : "Auto-submit failed";
+        onToast?.(message, "error");
+      }
+    })();
+  }, [
+    timer.expiredAlert,
+    timer.secondsRemaining,
+    timer.running,
+    timer.mode,
+    submitted,
+    session.id,
+    team.id,
+    playerUid,
+    profile.nickname,
+    onToast,
+  ]);
+
   const timerUrgent = timer.secondsRemaining > 0 && timer.secondsRemaining <= 10;
   const timerActive =
     timer.running || timer.secondsRemaining < MODE_SECONDS[timer.mode];
+  const hubActive = timer.mode === "team_brainstorm" && !submitted;
 
   return (
     <div className="mx-auto w-full max-w-md space-y-5 px-4 py-6 pb-10">
@@ -88,6 +174,9 @@ export function AssignedTeamView({ session, team, onToast }: AssignedTeamViewPro
           {session.date_label}
         </p>
         <h1 className="mt-1 text-2xl font-black tracking-tight text-white">You&apos;re in!</h1>
+        <p className="mt-1 text-sm text-slate-400">
+          Playing as <span className="font-semibold text-teal-300">{profile.nickname}</span>
+        </p>
 
         {(timer.running || timerActive || timer.expiredAlert) && (
           <motion.div
@@ -111,7 +200,7 @@ export function AssignedTeamView({ session, team, onToast }: AssignedTeamViewPro
       </motion.header>
 
       <AnimatePresence mode="wait">
-        {(timer.running || timerActive) && (
+        {(timer.running || timerActive) && !submitted && (
           <motion.div
             key={timer.mode}
             initial={{ opacity: 0, y: -8, scale: 0.98 }}
@@ -228,17 +317,42 @@ export function AssignedTeamView({ session, team, onToast }: AssignedTeamViewPro
         </div>
       </motion.section>
 
-      <IdeaNotesCanvas
-        key={session.id}
-        sessionId={session.id}
-        domain={team.domain}
-        words={team.words}
-        onCopied={(msg) => onToast?.(msg, "success")}
-        onCopyError={(msg) => onToast?.(msg, "error")}
-      />
+      {submitted ? (
+        <ElevatorPitchView
+          domain={team.domain}
+          words={team.words}
+          notes={localNotes}
+          onCopied={(msg) => onToast?.(msg, "success")}
+          onCopyError={(msg) => onToast?.(msg, "error")}
+        />
+      ) : (
+        <>
+          <TeamIdeaHub
+            sessionId={session.id}
+            teamId={team.id}
+            playerUid={playerUid}
+            nickname={profile.nickname}
+            localNotes={localNotes}
+            active={hubActive}
+            onUseAsFoundation={useAsFoundation}
+          />
+
+          <IdeaNotesCanvas
+            key={session.id}
+            sessionId={session.id}
+            domain={team.domain}
+            words={team.words}
+            locked={locked}
+            externalNotes={foundationNotes}
+            onNotesChange={onNotesChange}
+            onCopied={(msg) => onToast?.(msg, "success")}
+            onCopyError={(msg) => onToast?.(msg, "error")}
+          />
+        </>
+      )}
 
       <TimerExpiredModal
-        open={timer.expiredAlert}
+        open={timer.expiredAlert && !submitted}
         onDismiss={timer.dismissExpiredAlert}
       />
     </div>

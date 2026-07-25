@@ -40,7 +40,45 @@ export interface PlayerAssignment {
   session_id: string;
   team_id: string;
   player_uid: string;
+  real_name: string;
+  nickname: string;
   joined_at: string;
+}
+
+/** Structured solo / team idea micro-form (≤140 chars per field). */
+export interface IdeaNotes {
+  startupName: string;
+  oneSentenceSolution: string;
+  toolsIntegration: string;
+}
+
+/** Shared teammate idea payload on the team realtime channel. */
+export interface SharedTeamIdea {
+  playerUid: string;
+  nickname: string;
+  startupName: string;
+  oneSentenceSolution: string;
+  toolsIntegration: string;
+  updatedAt: string;
+}
+
+export interface SubmittedIdea {
+  id: string;
+  session_id: string;
+  team_id: string;
+  author_player_uid: string;
+  author_nickname: string;
+  startup_name: string;
+  one_sentence_solution: string;
+  tools_integration: string;
+  is_final_team_pitch: boolean;
+  created_at: string;
+}
+
+/** Student onboarding profile (persisted locally + stored on assignment). */
+export interface PlayerProfile {
+  realName: string;
+  nickname: string;
 }
 
 /** Payload returned by the `assign_player_atomically` RPC. */
@@ -50,4 +88,6 @@ export type AssignPlayerResult = Team;
 export interface AssignPlayerParams {
   p_session_id: string;
   p_player_uid: string;
+  p_real_name: string;
+  p_nickname: string;
 }
