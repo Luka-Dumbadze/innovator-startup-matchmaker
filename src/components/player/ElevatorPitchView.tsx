@@ -65,7 +65,7 @@ export function ElevatorPitchView({
         </div>
         <div>
           <p className="text-[10px] font-bold tracking-wide text-slate-500 uppercase">
-            Industry
+            🌍 გლობალური მისია
           </p>
           <p className="font-[family-name:var(--font-noto-georgian)] text-sm font-semibold text-amber-100">
             {domain || "—"}
@@ -87,7 +87,9 @@ export function ElevatorPitchView({
             {notes.toolsIntegration.trim() || "—"}
           </p>
         </div>
-        <p className="text-xs text-slate-500">Keywords: {words.join(" · ")}</p>
+        <p className="font-[family-name:var(--font-noto-georgian)] text-xs text-slate-500">
+          🛠️ {words[0] ?? "—"} · ⚡ {words[1] ?? "—"} · 🌀 {words[2] ?? "—"}
+        </p>
       </div>
 
       <button

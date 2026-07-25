@@ -127,7 +127,7 @@ export function AdminDashboard({
           {tab === "create" ? (
             <AdminSection
               title="Create New Session"
-              description="Set a label, tune 8 teams (1 domain + 3 keywords each), then go live."
+              description="Set a label, tune 8 teams (1 global challenge + 3 tools each), then go live."
             >
               <CreateSessionForm />
             </AdminSection>

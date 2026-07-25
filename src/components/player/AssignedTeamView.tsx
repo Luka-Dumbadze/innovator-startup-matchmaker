@@ -25,6 +25,7 @@ import {
   markPitchSubmitted,
   saveTeamFoundation,
 } from "@/lib/utils/player-storage";
+import { TOOL_SLOT_META } from "@/lib/constants/preset-words";
 
 type AssignedTeamViewProps = {
   session: DailySession;
@@ -289,7 +290,7 @@ export function AssignedTeamView({
             className="mt-4 rounded-2xl bg-amber-500/15 px-4 py-4 ring-1 ring-amber-400/40"
           >
             <p className="text-xs font-bold tracking-[0.14em] text-amber-200/90 uppercase">
-              🎯 სამიზნე სფერო
+              🌍 გლობალური მისია
             </p>
             <p className="mt-1 font-[family-name:var(--font-noto-georgian)] text-xl font-black leading-snug text-amber-50">
               {team.domain || "—"}
@@ -297,25 +298,34 @@ export function AssignedTeamView({
           </motion.div>
 
           <p className="mt-4 mb-2 text-xs font-bold tracking-[0.16em] text-slate-400 uppercase">
-            🔑 3 საკვანძო სიტყვა
+            3 ინოვაციის ინსტრუმენტი
           </p>
           <div className="grid grid-cols-3 gap-2">
-            {team.words.map((word, index) => (
-              <motion.div
-                key={`${word}-${index}`}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.08 * index }}
-                className="rounded-2xl px-2 py-4 text-center ring-1 ring-white/10"
-                style={{
-                  background: `linear-gradient(160deg, ${team.color}33, #020617 70%)`,
-                }}
-              >
-                <p className="font-[family-name:var(--font-noto-georgian)] text-base font-bold leading-snug text-white">
-                  {word}
-                </p>
-              </motion.div>
-            ))}
+            {TOOL_SLOT_META.map((slot, index) => {
+              const word = team.words[index] ?? "—";
+              return (
+                <motion.div
+                  key={slot.label}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.08 * index }}
+                  className="rounded-2xl px-2 py-3 text-center ring-1 ring-white/10"
+                  style={{
+                    background: `linear-gradient(160deg, ${team.color}33, #020617 70%)`,
+                  }}
+                >
+                  <p className="mb-1 text-sm leading-none" aria-hidden>
+                    {slot.icon}
+                  </p>
+                  <p className="text-[9px] font-bold tracking-wide text-slate-400 uppercase">
+                    {slot.shortLabel}
+                  </p>
+                  <p className="mt-1 font-[family-name:var(--font-noto-georgian)] text-sm font-bold leading-snug text-white">
+                    {word}
+                  </p>
+                </motion.div>
+              );
+            })}
           </div>
         </div>
       </motion.section>

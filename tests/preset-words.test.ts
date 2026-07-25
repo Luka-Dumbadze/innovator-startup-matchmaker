@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ENVIRONMENT_EFFECTS,
+  GLOBAL_CHALLENGES,
+  PHYSICAL_OBJECTS,
+  TECH_DRIVERS,
   generateRandomPresets,
   TEAM_COLOR_PRESETS,
 } from "@/lib/constants/preset-words";
@@ -21,27 +25,32 @@ describe("generateRandomPresets", () => {
     expect(numbers).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
-  it("gives each team 1 non-empty domain and exactly 3 keywords", () => {
+  it("gives each team 1 challenge and 3 categorized tools", () => {
     const teams = generateRandomPresets();
+    const physicalSet = new Set(PHYSICAL_OBJECTS);
+    const techSet = new Set(TECH_DRIVERS);
+    const envSet = new Set(ENVIRONMENT_EFFECTS);
+    const challengeSet = new Set(GLOBAL_CHALLENGES);
 
     for (const team of teams) {
-      expect(typeof team.domain).toBe("string");
-      expect(team.domain.trim().length).toBeGreaterThan(0);
+      expect(challengeSet.has(team.domain)).toBe(true);
       expect(team.words).toHaveLength(3);
-      for (const word of team.words) {
-        expect(typeof word).toBe("string");
-        expect(word.trim().length).toBeGreaterThan(0);
-      }
+      expect(physicalSet.has(team.words[0]!)).toBe(true);
+      expect(techSet.has(team.words[1]!)).toBe(true);
+      expect(envSet.has(team.words[2]!)).toBe(true);
     }
   });
 
-  it("uses unique domains and unique words across teams when banks allow", () => {
+  it("uses unique challenges and unique tools per category across teams", () => {
     const teams = generateRandomPresets();
-    const domains = teams.map((t) => t.domain);
-    const allWords = teams.flatMap((t) => t.words);
+    const challenges = teams.map((t) => t.domain);
+    const physical = teams.map((t) => t.words[0]!);
+    const tech = teams.map((t) => t.words[1]!);
+    const environment = teams.map((t) => t.words[2]!);
 
-    expect(new Set(domains).size).toBe(8);
-    expect(allWords).toHaveLength(24);
-    expect(new Set(allWords).size).toBe(24);
+    expect(new Set(challenges).size).toBe(8);
+    expect(new Set(physical).size).toBe(8);
+    expect(new Set(tech).size).toBe(8);
+    expect(new Set(environment).size).toBe(8);
   });
 });

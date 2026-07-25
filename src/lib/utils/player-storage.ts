@@ -180,7 +180,7 @@ export function isPitchSubmitted(sessionId: string): boolean {
   return window.localStorage.getItem(submittedKey(sessionId)) === "1";
 }
 
-/** Formats structured idea + domain + keywords into a 1-minute elevator pitch. */
+/** Formats structured idea + global challenge + 3 tools into a pitch sentence. */
 export function formatPitchSummary(
   notes: IdeaNotes,
   domain: string,
@@ -188,19 +188,12 @@ export function formatPitchSummary(
 ): string {
   const name = notes.startupName.trim() || "Untitled Startup";
   const solution = notes.oneSentenceSolution.trim() || "—";
-  const tools = notes.toolsIntegration.trim() || "—";
-  const sector = domain.trim() || "—";
-  const wordLine = words.join(" · ");
+  const challenge = domain.trim() || "—";
+  const physical = words[0]?.trim() || "—";
+  const tech = words[1]?.trim() || "—";
+  const environment = words[2]?.trim() || "—";
 
-  return [
-    `🚀 ${name}`,
-    "",
-    `🎯 Target industry: ${sector}`,
-    `1-sentence solution: ${solution}`,
-    "",
-    `🔑 Keywords: ${wordLine}`,
-    `3 tools integration: ${tools}`,
-  ].join("\n");
+  return `ჩვენი სტარტაპი ${name} ებრძვის ${challenge}-ს. ჩვენ შევქმენით ${solution}, სადაც გამოყენებულია ${physical}, ${tech} და ${environment}.`;
 }
 
 export function teamIdeasChannelName(sessionId: string, teamId: string): string {

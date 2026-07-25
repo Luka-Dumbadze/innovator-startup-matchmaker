@@ -97,26 +97,20 @@ describe("idea notes storage", () => {
 });
 
 describe("formatPitchSummary", () => {
-  const domain = "ჯანდაცვა & MedTech";
-  const words = ["აუზი", "დრონი", "რობოტი"];
+  const challenge = "კლიმატის კრიზისი";
+  const words = ["სარკე", "დრონი", "მუსიკა"];
 
-  it("formats a complete pitch from notes, domain, and keywords", () => {
+  it("formats a Georgian pitch from challenge + 3 tools", () => {
     const notes: IdeaNotes = {
       startupName: "BridgeBot",
-      oneSentenceSolution: "Rural clinics lack fast supply drops",
-      toolsIntegration: "Drones cross the bridge pool to robot hubs",
+      oneSentenceSolution: "სწრაფი მიწოდების ქსელი",
+      toolsIntegration: "unused in summary sentence",
     };
 
-    const pitch = formatPitchSummary(notes, domain, words);
+    const pitch = formatPitchSummary(notes, challenge, words);
 
-    expect(pitch).toContain("🚀 BridgeBot");
-    expect(pitch).toContain("🎯 Target industry: ჯანდაცვა & MedTech");
-    expect(pitch).toContain(
-      "1-sentence solution: Rural clinics lack fast supply drops"
-    );
-    expect(pitch).toContain("🔑 Keywords: აუზი · დრონი · რობოტი");
-    expect(pitch).toContain(
-      "3 tools integration: Drones cross the bridge pool to robot hubs"
+    expect(pitch).toBe(
+      "ჩვენი სტარტაპი BridgeBot ებრძვის კლიმატის კრიზისი-ს. ჩვენ შევქმენით სწრაფი მიწოდების ქსელი, სადაც გამოყენებულია სარკე, დრონი და მუსიკა."
     );
   });
 
@@ -124,13 +118,13 @@ describe("formatPitchSummary", () => {
     const pitch = formatPitchSummary(
       { startupName: "  ", oneSentenceSolution: "", toolsIntegration: "" },
       "  ",
-      words
+      []
     );
 
-    expect(pitch).toContain("🚀 Untitled Startup");
-    expect(pitch).toContain("🎯 Target industry: —");
-    expect(pitch).toContain("1-sentence solution: —");
-    expect(pitch).toContain("3 tools integration: —");
+    expect(pitch).toContain("Untitled Startup");
+    expect(pitch).toContain("ებრძვის —-ს");
+    expect(pitch).toContain("შევქმენით —");
+    expect(pitch).toContain("გამოყენებულია —, — და —");
   });
 });
 

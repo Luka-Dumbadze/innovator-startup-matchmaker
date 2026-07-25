@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Check, ClipboardCopy, Lightbulb, Lock, Sparkles } from "lucide-react";
 
 import type { IdeaNotes } from "@/types/game";
+import { TOOL_SLOT_META } from "@/lib/constants/preset-words";
 import {
   IDEA_FIELD_MAX,
   clampIdeaField,
@@ -103,13 +104,29 @@ export function IdeaNotesCanvas({
         </div>
       </div>
 
-      <div className="mb-4 rounded-xl bg-amber-500/10 px-3 py-2 ring-1 ring-amber-400/30">
+      <div className="mb-3 rounded-xl bg-amber-500/10 px-3 py-2 ring-1 ring-amber-400/30">
         <p className="text-[10px] font-bold tracking-wide text-amber-200/80 uppercase">
-          🎯 სამიზნე სფერო
+          🌍 გლობალური მისია
         </p>
         <p className="font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-amber-50">
           {domain || "—"}
         </p>
+      </div>
+
+      <div className="mb-4 grid grid-cols-3 gap-1.5">
+        {TOOL_SLOT_META.map((slot, index) => (
+          <div
+            key={slot.label}
+            className="rounded-xl bg-slate-950/70 px-1.5 py-2 text-center ring-1 ring-slate-700"
+          >
+            <p className="text-xs leading-none" aria-hidden>
+              {slot.icon}
+            </p>
+            <p className="mt-1 truncate font-[family-name:var(--font-noto-georgian)] text-[11px] font-semibold text-teal-200">
+              {words[index] ?? "—"}
+            </p>
+          </div>
+        ))}
       </div>
 
       <div className="space-y-4">
@@ -158,7 +175,7 @@ export function IdeaNotesCanvas({
             </span>
           </span>
           <p className="mt-1 mb-1.5 font-[family-name:var(--font-noto-georgian)] text-xs text-teal-300/90">
-            {words.join(" · ")}
+            {TOOL_SLOT_META.map((slot, i) => `${slot.icon} ${words[i] ?? "—"}`).join(" · ")}
           </p>
           <textarea
             value={notes.toolsIntegration}

@@ -26,9 +26,9 @@ export interface Team {
   team_number: number;
   name: string;
   color: string;
-  /** Target industry / sector for ideation (Georgian label). */
+  /** Global Human Challenge for ideation (Georgian label). */
   domain: string;
-  /** Exactly three keywords shown to students on that team. */
+  /** Exactly three structured tools: Physical · Tech · Environment. */
   words: string[];
   max_capacity: number;
   current_count: number;

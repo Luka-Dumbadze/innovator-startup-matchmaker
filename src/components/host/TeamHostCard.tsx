@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { CheckCircle2 } from "lucide-react";
 
 import type { Team } from "@/types/game";
+import { TOOL_SLOT_META } from "@/lib/constants/preset-words";
 
 type TeamHostCardProps = {
   team: Team;
@@ -83,22 +84,33 @@ export function TeamHostCard({ team, justJoined = false }: TeamHostCardProps) {
         )}
       </div>
 
-      <div className="relative mb-3 rounded-xl bg-amber-500/15 px-3 py-2 ring-1 ring-amber-400/40">
-        <p className="truncate font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-amber-100 xl:text-base">
-          🎯 სფერო: {team.domain || "—"}
+      <div className="relative mb-3 rounded-xl bg-amber-500/20 px-3 py-2.5 ring-1 ring-amber-400/50">
+        <p className="text-[10px] font-bold tracking-[0.12em] text-amber-200/90 uppercase">
+          🌍 გლობალური გამოწვევა
+        </p>
+        <p className="mt-0.5 font-[family-name:var(--font-noto-georgian)] text-sm font-black leading-snug text-amber-50 xl:text-base">
+          {team.domain || "—"}
         </p>
       </div>
 
       <ul className="relative mb-4 grid flex-1 grid-cols-3 gap-1.5">
-        {team.words.map((word) => (
-          <li
-            key={word}
-            className="truncate rounded-lg bg-slate-950/70 px-1.5 py-1.5 text-center font-[family-name:var(--font-noto-georgian)] text-xs font-semibold text-slate-100 ring-1 ring-slate-700/80 xl:text-sm"
-            title={word}
-          >
-            {word}
-          </li>
-        ))}
+        {TOOL_SLOT_META.map((slot, index) => {
+          const word = team.words[index] ?? "—";
+          return (
+            <li
+              key={slot.label}
+              className="flex flex-col items-center justify-center gap-0.5 rounded-lg bg-slate-950/70 px-1.5 py-2 text-center ring-1 ring-slate-700/80"
+              title={`${slot.label}: ${word}`}
+            >
+              <span className="text-[10px] leading-none" aria-hidden>
+                {slot.icon}
+              </span>
+              <span className="truncate font-[family-name:var(--font-noto-georgian)] text-xs font-semibold text-slate-100 xl:text-sm">
+                {word}
+              </span>
+            </li>
+          );
+        })}
       </ul>
 
       <div className="relative">

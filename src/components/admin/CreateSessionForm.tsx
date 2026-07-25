@@ -45,7 +45,7 @@ export function CreateSessionForm() {
   const autoFill = () => {
     const presets = generateRandomPresets();
     setTeams(toDraft(presets));
-    push("Filled 8 teams with domains + keywords", "success");
+    push("Filled 8 teams with challenges + 3 tools", "success");
   };
 
   const updateTeam = (index: number, patch: Partial<TeamDraftInput>) => {
@@ -131,30 +131,40 @@ export function CreateSessionForm() {
             </div>
 
             <label className="mb-2 block">
-              <span className="mb-1 inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-amber-800 uppercase">
-                🎯 Domain
+              <span className="mb-1 inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-amber-800">
+                🌍 გლობალური გამოწვევა
               </span>
               <input
                 type="text"
                 value={team.domain}
                 onChange={(e) => updateTeam(teamIndex, { domain: e.target.value })}
-                placeholder="სამიზნე სფერო"
+                placeholder="მაგ. კლიმატის კრიზისი"
                 className="w-full rounded-lg border border-amber-200 bg-amber-50/80 px-2.5 py-1.5 font-[family-name:var(--font-noto-georgian)] text-sm font-semibold text-slate-900 outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/40"
                 required
               />
             </label>
 
             <div className="grid gap-1.5">
-              {team.words.map((word, wordIndex) => (
-                <input
-                  key={wordIndex}
-                  type="text"
-                  value={word}
-                  onChange={(e) => updateWord(teamIndex, wordIndex, e.target.value)}
-                  placeholder={`Keyword ${wordIndex + 1}`}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-[family-name:var(--font-noto-georgian)] text-sm text-slate-800 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/30"
-                  required
-                />
+              {(
+                [
+                  { icon: "🛠️", label: "ფიზიკური ნივთი" },
+                  { icon: "⚡", label: "ტექნოლოგია" },
+                  { icon: "🌀", label: "გარემო/ტრიგერი" },
+                ] as const
+              ).map((slot, wordIndex) => (
+                <label key={slot.label} className="block">
+                  <span className="mb-0.5 block text-[10px] font-bold tracking-wide text-slate-500">
+                    {slot.icon} {slot.label}
+                  </span>
+                  <input
+                    type="text"
+                    value={team.words[wordIndex] ?? ""}
+                    onChange={(e) => updateWord(teamIndex, wordIndex, e.target.value)}
+                    placeholder={slot.label}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-[family-name:var(--font-noto-georgian)] text-sm text-slate-800 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/30"
+                    required
+                  />
+                </label>
               ))}
             </div>
           </div>

@@ -72,7 +72,7 @@ function validateTeams(teams: TeamDraftInput[]): void {
       throw new Error(`Team ${team.teamNumber} needs a name`);
     }
     if (!team.domain.trim()) {
-      throw new Error(`Team ${team.teamNumber} needs a target domain`);
+      throw new Error(`Team ${team.teamNumber} needs a global challenge`);
     }
     if (!/^#[0-9A-Fa-f]{6}$/.test(team.color)) {
       throw new Error(`Team ${team.teamNumber} color must be a hex like #2563EB`);

@@ -1,5 +1,8 @@
 /**
- * Georgian sector bank + keyword bank + team color presets for daily auto-fill.
+ * Global Challenge + 3 Structured Innovation Tools banks for daily auto-fill.
+ *
+ * Formula per team:
+ *   1 Global Human Challenge + 1 Physical Object + 1 Tech Driver + 1 Environment Effect
  */
 
 export type TeamColorPreset = {
@@ -11,9 +14,21 @@ export type TeamPresetConfig = {
   teamNumber: number;
   name: string;
   color: string;
+  /** Global Human Challenge (stored in teams.domain). */
   domain: string;
+  /**
+   * Exactly 3 innovation tools, ordered as:
+   * [0] Physical Object · [1] Tech Driver · [2] Environment Effect
+   */
   words: string[];
 };
+
+/** Labels for the 3 structured tool slots (index-aligned with `words`). */
+export const TOOL_SLOT_META = [
+  { icon: "🛠️", label: "ფიზიკური ნივთი", shortLabel: "Object" },
+  { icon: "⚡", label: "ტექნოლოგია", shortLabel: "Tech" },
+  { icon: "🌀", label: "გარემო/ტრიგერი", shortLabel: "Environment" },
+] as const;
 
 /** Fixed palette for the 8 morning teams (order = team_number 1…8). */
 export const TEAM_COLOR_PRESETS: readonly TeamColorPreset[] = [
@@ -27,149 +42,78 @@ export const TEAM_COLOR_PRESETS: readonly TeamColorPreset[] = [
   { label: "Pink", hex: "#DB2777" },
 ] as const;
 
-/** 15+ Georgian target industries / sectors. */
-export const GEORGIAN_SECTORS: readonly string[] = [
-  "სოფლის მეურნეობა",
-  "განათლება & EdTech",
-  "ჯანდაცვა & MedTech",
-  "ტურიზმი & HORECA",
-  "ფინანსები & FinTech",
-  "ეკოლოგია & GreenTech",
-  "ტრანსპორტი & ლოგისტიკა",
-  "ენერგეტიკა",
-  "ჭკვიანი ქალაქი (Smart City)",
-  "უსაფრთხოება",
-  "კულტურა & გართობა",
-  "ელექტრონული კომერცია",
-  "მშენებლობა & უძრავი ქონება",
-  "მედია & კონტენტი",
-  "სპორტი & ჯანსაღი ცხოვრება",
-  "საკვები & FoodTech",
-  "წარმოება & ინდუსტრია",
+/** 12 short Global Human Challenges. */
+export const GLOBAL_CHALLENGES: readonly string[] = [
+  "კლიმატის კრიზისი",
+  "მენტალური ჯანმრთელობა",
+  "წყლის დეფიციტი",
+  "საკვების დეფიციტი",
+  "პლასტმასი & ნარჩენები",
+  "ენერგოკრიზისი",
+  "ხანდაზმულთა მოვლა",
+  "დეზინფორმაცია & კიბერრისკები",
+  "განათლების უთანასწორობა",
+  "ურბანული საცობები",
+  "AI & დასაქმება",
+  "გლობალური სიღარიბე",
 ] as const;
 
-/**
- * 50+ concrete, visual Georgian words — good prompt fuel for ideation games.
- */
-export const GEORGIAN_PRESET_WORDS: readonly string[] = [
-  "აუზი",
-  "დრონი",
-  "მზის პანელი",
-  "რობოტი",
+/** @deprecated Prefer GLOBAL_CHALLENGES — kept for older imports. */
+export const GEORGIAN_SECTORS = GLOBAL_CHALLENGES;
+
+/** Everyday physical objects used as innovation building blocks. */
+export const PHYSICAL_OBJECTS: readonly string[] = [
   "სარკე",
-  "მუსიკა",
-  "სათვალე",
-  "ველოსიპედი",
   "ქოლგა",
-  "ხიდი",
-  "ლიფტი",
-  "კამერა",
-  "ტელესკოპი",
-  "ფანარი",
-  "კარადა",
-  "საათი",
-  "წიგნი",
-  "ფანქარი",
-  "რვეული",
-  "ჩანთა",
-  "ფეხსაცმელი",
-  "ქუდი",
-  "შარფი",
-  "გიტარა",
-  "დრამი",
-  "მიკროფონი",
-  "ყურსასმენი",
-  "ტელეფონი",
-  "პლანშეტი",
-  "კომპიუტერი",
-  "კლავიატურა",
-  "მაუსი",
-  "პრინტერი",
-  "ბატარეა",
-  "დამტენი",
-  "ანტენა",
-  "რადიო",
-  "ტელევიზორი",
-  "პროექტორი",
-  "ეკრანი",
-  "რუკა",
-  "კომპასი",
-  "მიკროსკოპი",
-  "ლაბორატორია",
-  "მაგნიტი",
-  "ძრავა",
-  "ბორბალი",
-  "სკეიტბორდი",
-  "სკუტერი",
-  "ნავი",
-  "თვითმფრინავი",
-  "ბუშტი",
-  "ცათამბჯენი",
-  "კარიბჭე",
-  "ფანჯარა",
-  "კიბე",
-  "აივანი",
-  "ბაღი",
-  "შადრევანი",
-  "შუქნიშანი",
-  "ავტობუსი",
-  "მატარებელი",
-  "მეტრო",
-  "გზა",
-  "გვირაბი",
-  "პარკი",
-  "მოედანი",
-  "ბაზარი",
-  "კაფე",
-  "სამზარეულო",
-  "ღუმელი",
+  "კარი",
   "მაცივარი",
-  "ქვაბი",
-  "თეფში",
-  "ჭიქა",
-  "კოვზი",
-  "ჩანგალი",
-  "დანა",
-  "სახლი",
-  "კარავი",
-  "სავარძელი",
+  "ჩანთა",
+  "სათვალე",
+  "სკამი",
+  "ბეჭედი",
+  "ყურსასმენები",
+  "საათი",
+  "ფანჯარა",
   "მაგიდა",
-  "თარო",
-  "ნახატი",
-  "ფუნჯი",
-  "საღებავი",
-  "კანვასი",
-  "ქანდაკება",
-  "ბურთი",
-  "რაკეტა",
-  "ბადე",
-  "სპორტდარბაზი",
-  "საუნა",
-  "ტალღა",
-  "ქვიშა",
-  "კლდე",
-  "ტყე",
-  "ხე",
-  "ყვავილი",
-  "თესლი",
-  "ფუტკარი",
-  "პეპელა",
-  "ჩიტი",
-  "თევზი",
-  "ვარსკვლავი",
-  "მთვარე",
-  "მზე",
-  "ღრუბელი",
+] as const;
+
+/** Technology drivers that power the solution. */
+export const TECH_DRIVERS: readonly string[] = [
+  "დრონი",
+  "სენსორი",
+  "მზის პანელი",
+  "AI რობოტი",
+  "აპლიკაცია",
+  "ბიომეტრია",
+  "კაფსულა",
+  "კამერა",
+  "ბატარეა",
+  "ანტენა",
+  "მიკროფონი",
+  "პროექტორი",
+] as const;
+
+/** Environment / emotional / sensory triggers. */
+export const ENVIRONMENT_EFFECTS: readonly string[] = [
+  "მუსიკა",
+  "სიბნელე",
+  "სიცხე",
+  "ხმაური",
   "წვიმა",
-  "ცისარტყელა",
-  "ელვა",
+  "სიჩქარე",
+  "ემოცია",
   "ქარი",
-  "თოვლი",
-  "ჩანჩქერი",
-  "კარაქი",
-  "პური",
-  "ყავა",
-  "თაფლი",
+  "სინათლე",
+  "სიჩუმე",
+  "ველი",
+  "ტალღა",
+] as const;
+
+/** Flat union of all tool banks (legacy helpers / docs). */
+export const GEORGIAN_PRESET_WORDS: readonly string[] = [
+  ...PHYSICAL_OBJECTS,
+  ...TECH_DRIVERS,
+  ...ENVIRONMENT_EFFECTS,
 ] as const;
 
 function shuffleInPlace<T>(items: T[]): T[] {
@@ -202,21 +146,20 @@ function pickUniqueFromBank(bank: readonly string[], count: number): string[] {
 }
 
 /**
- * Returns 8 team configs with fixed color presets, 1 random sector/domain,
- * and 3 randomized Georgian keywords each (24 unique words when the bank allows).
+ * Returns 8 team configs with fixed color presets and the structured formula:
+ * 1 Global Challenge + 1 Physical Object + 1 Tech Driver + 1 Environment Effect.
  */
 export function generateRandomPresets(): TeamPresetConfig[] {
-  const domains = pickUniqueFromBank(GEORGIAN_SECTORS, 8);
-  const words = pickUniqueFromBank(GEORGIAN_PRESET_WORDS, 24);
+  const challenges = pickUniqueFromBank(GLOBAL_CHALLENGES, 8);
+  const physical = pickUniqueFromBank(PHYSICAL_OBJECTS, 8);
+  const tech = pickUniqueFromBank(TECH_DRIVERS, 8);
+  const environment = pickUniqueFromBank(ENVIRONMENT_EFFECTS, 8);
 
-  return TEAM_COLOR_PRESETS.map((preset, index) => {
-    const offset = index * 3;
-    return {
-      teamNumber: index + 1,
-      name: preset.label,
-      color: preset.hex,
-      domain: domains[index]!,
-      words: [words[offset]!, words[offset + 1]!, words[offset + 2]!],
-    };
-  });
+  return TEAM_COLOR_PRESETS.map((preset, index) => ({
+    teamNumber: index + 1,
+    name: preset.label,
+    color: preset.hex,
+    domain: challenges[index]!,
+    words: [physical[index]!, tech[index]!, environment[index]!],
+  }));
 }
