@@ -136,7 +136,7 @@ export function AdminDashboard({
           {tab === "history" ? (
             <AdminSection
               title="Past Sessions History"
-              description="Re-activate a previous day without recreating teams."
+              description="Inspect archives, export CSV/JSON, or re-activate a previous day."
             >
               <SessionHistoryTable sessions={sessions} />
             </AdminSection>

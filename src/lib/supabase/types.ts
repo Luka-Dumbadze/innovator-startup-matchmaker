@@ -131,6 +131,7 @@ export type Database = {
           session_id: string;
           team_id: string;
           author_player_uid: string;
+          author_real_name: string;
           author_nickname: string;
           startup_name: string;
           one_sentence_solution: string;
@@ -143,6 +144,7 @@ export type Database = {
           session_id: string;
           team_id: string;
           author_player_uid: string;
+          author_real_name?: string;
           author_nickname: string;
           startup_name: string;
           one_sentence_solution: string;
@@ -155,6 +157,7 @@ export type Database = {
           session_id?: string;
           team_id?: string;
           author_player_uid?: string;
+          author_real_name?: string;
           author_nickname?: string;
           startup_name?: string;
           one_sentence_solution?: string;

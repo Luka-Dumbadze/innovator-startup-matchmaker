@@ -16,6 +16,7 @@ import {
 
 import { resetSessionAssignments, type ActiveSessionSnapshot } from "@/lib/actions/admin-actions";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
+import { SessionArchiveViewer } from "@/components/admin/SessionArchiveViewer";
 import { useToast } from "@/components/admin/ToastProvider";
 
 type ActiveSessionCardProps = {
@@ -184,6 +185,14 @@ export function ActiveSessionCard({ snapshot, playUrl }: ActiveSessionCardProps)
             <Link2 className="size-3.5 opacity-60" />
           </button>
         </div>
+      </div>
+
+      <div className="mt-6">
+        <SessionArchiveViewer
+          sessionId={session.id}
+          sessionLabel={session.date_label}
+          defaultOpen
+        />
       </div>
 
       <ConfirmDialog

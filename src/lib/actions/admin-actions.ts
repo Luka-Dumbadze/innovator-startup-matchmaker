@@ -3,7 +3,12 @@
 import { revalidatePath } from "next/cache";
 
 import { createAdminSupabaseClient } from "@/lib/supabase/server";
-import type { DailySession, Team } from "@/types/game";
+import type {
+  DailySession,
+  PlayerAssignment,
+  SubmittedIdea,
+  Team,
+} from "@/types/game";
 
 export type TeamDraftInput = {
   teamNumber: number;
@@ -21,6 +26,18 @@ export type ActiveSessionSnapshot = {
   session: DailySession;
   teams: Team[];
   totalJoined: number;
+};
+
+/** One team with nested roster + submissions for archive views. */
+export type SessionArchiveTeam = Team & {
+  assignments: PlayerAssignment[];
+  ideas: SubmittedIdea[];
+};
+
+/** Full relational snapshot for a daily session (admin archive). */
+export type FullSessionArchive = {
+  session: DailySession;
+  teams: SessionArchiveTeam[];
 };
 
 function asThreeWords(words: string[]): string[] {
@@ -294,4 +311,189 @@ export async function listSessions(): Promise<DailySession[]> {
   }
 
   return data ?? [];
+}
+
+function mapAssignment(row: {
+  id: string;
+  session_id: string;
+  team_id: string;
+  player_uid: string;
+  real_name?: string | null;
+  nickname?: string | null;
+  joined_at: string;
+}): PlayerAssignment {
+  return {
+    id: row.id,
+    session_id: row.session_id,
+    team_id: row.team_id,
+    player_uid: row.player_uid,
+    real_name: (row.real_name ?? "").trim(),
+    nickname: (row.nickname ?? "").trim(),
+    joined_at: row.joined_at,
+  };
+}
+
+function mapSubmittedIdea(row: {
+  id: string;
+  session_id: string;
+  team_id: string;
+  author_player_uid: string;
+  author_real_name?: string | null;
+  author_nickname: string;
+  startup_name: string;
+  one_sentence_solution: string;
+  tools_integration: string;
+  is_final_team_pitch: boolean;
+  created_at: string;
+}): SubmittedIdea {
+  return {
+    id: row.id,
+    session_id: row.session_id,
+    team_id: row.team_id,
+    author_player_uid: row.author_player_uid,
+    author_real_name: (row.author_real_name ?? "").trim(),
+    author_nickname: row.author_nickname,
+    startup_name: row.startup_name,
+    one_sentence_solution: row.one_sentence_solution,
+    tools_integration: row.tools_integration,
+    is_final_team_pitch: row.is_final_team_pitch,
+    created_at: row.created_at,
+  };
+}
+
+function csvEscape(value: string): string {
+  if (/[",\n\r]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+/**
+ * Fetch complete relational archive for a session:
+ * session → teams → player_assignments + submitted_ideas.
+ */
+export async function getFullSessionArchive(
+  sessionId: string
+): Promise<ActionResult<FullSessionArchive>> {
+  try {
+    if (!sessionId) {
+      return { ok: false, error: "sessionId is required" };
+    }
+
+    const supabase = createAdminSupabaseClient();
+
+    const { data: session, error: sessionError } = await supabase
+      .from("daily_sessions")
+      .select("*")
+      .eq("id", sessionId)
+      .maybeSingle();
+
+    if (sessionError) {
+      return { ok: false, error: sessionError.message };
+    }
+    if (!session) {
+      return { ok: false, error: "Session not found" };
+    }
+
+    const [teamsRes, assignmentsRes, ideasRes] = await Promise.all([
+      supabase
+        .from("teams")
+        .select("*")
+        .eq("session_id", sessionId)
+        .order("team_number", { ascending: true }),
+      supabase
+        .from("player_assignments")
+        .select("*")
+        .eq("session_id", sessionId)
+        .order("joined_at", { ascending: true }),
+      supabase
+        .from("submitted_ideas")
+        .select("*")
+        .eq("session_id", sessionId)
+        .order("created_at", { ascending: true }),
+    ]);
+
+    if (teamsRes.error) {
+      return { ok: false, error: teamsRes.error.message };
+    }
+    if (assignmentsRes.error) {
+      return { ok: false, error: assignmentsRes.error.message };
+    }
+    if (ideasRes.error) {
+      return { ok: false, error: ideasRes.error.message };
+    }
+
+    const assignments = (assignmentsRes.data ?? []).map(mapAssignment);
+    const ideas = (ideasRes.data ?? []).map(mapSubmittedIdea);
+
+    const teams: SessionArchiveTeam[] = (teamsRes.data ?? []).map((row) => {
+      const team = mapTeam(row);
+      return {
+        ...team,
+        assignments: assignments.filter((a) => a.team_id === team.id),
+        ideas: ideas.filter((i) => i.team_id === team.id),
+      };
+    });
+
+    return { ok: true, data: { session, teams } };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Unexpected error loading archive",
+    };
+  }
+}
+
+/**
+ * Build a CSV export of session submissions (one row per submitted idea).
+ */
+export async function exportSessionCSV(
+  sessionId: string
+): Promise<ActionResult<string>> {
+  const archive = await getFullSessionArchive(sessionId);
+  if (!archive.ok) {
+    return archive;
+  }
+
+  const header = [
+    "Team Number",
+    "Team Name",
+    "Global Challenge",
+    "Tools",
+    "Player Real Name",
+    "Nickname",
+    "Startup Title",
+    "Solution",
+    "Tools Integration",
+    "Is Final Pitch",
+    "Submission Timestamp",
+  ];
+
+  const rows: string[][] = [];
+
+  for (const team of archive.data.teams) {
+    const tools = team.words.join(" · ");
+    for (const idea of team.ideas) {
+      rows.push([
+        String(team.team_number),
+        team.name,
+        team.domain,
+        tools,
+        idea.author_real_name || "—",
+        idea.author_nickname || "—",
+        idea.startup_name,
+        idea.one_sentence_solution,
+        idea.tools_integration,
+        idea.is_final_team_pitch ? "yes" : "no",
+        idea.created_at,
+      ]);
+    }
+  }
+
+  const lines = [
+    header.map(csvEscape).join(","),
+    ...rows.map((cols) => cols.map(csvEscape).join(",")),
+  ];
+
+  return { ok: true, data: lines.join("\n") };
 }

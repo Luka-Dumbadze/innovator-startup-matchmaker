@@ -68,6 +68,7 @@ export async function submitFinalTeamPitch(input: {
   sessionId: string;
   teamId: string;
   playerUid: string;
+  realName: string;
   nickname: string;
   notes: IdeaNotes;
 }): Promise<void> {
@@ -77,7 +78,8 @@ export async function submitFinalTeamPitch(input: {
     session_id: input.sessionId,
     team_id: input.teamId,
     author_player_uid: input.playerUid,
-    author_nickname: input.nickname,
+    author_real_name: input.realName.trim(),
+    author_nickname: input.nickname.trim(),
     startup_name: input.notes.startupName.trim() || "Untitled Startup",
     one_sentence_solution: input.notes.oneSentenceSolution.trim() || "—",
     tools_integration: input.notes.toolsIntegration.trim() || "—",

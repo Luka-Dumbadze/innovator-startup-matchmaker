@@ -137,6 +137,7 @@ export function AssignedTeamView({
           sessionId: session.id,
           teamId: team.id,
           playerUid,
+          realName: profile.realName,
           nickname: profile.nickname,
           notes,
         });
@@ -159,6 +160,7 @@ export function AssignedTeamView({
     team.id,
     playerUid,
     profile.nickname,
+    profile.realName,
     onToast,
   ]);
 
