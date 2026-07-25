@@ -70,8 +70,10 @@ export function LiveTimerHost({ sessionId, className = "" }: LiveTimerHostProps)
   const modeRef = useRef(mode);
   const flowActiveRef = useRef(false);
 
-  modeRef.current = mode;
-  flowActiveRef.current = flowActive;
+  useEffect(() => {
+    modeRef.current = mode;
+    flowActiveRef.current = flowActive;
+  }, [mode, flowActive]);
 
   const duration = MODE_SECONDS[mode];
   const progress = remaining / duration;

@@ -38,11 +38,14 @@ export function TeamIdeaHub({
   const notesRef = useRef(localNotes);
   const nicknameRef = useRef(nickname);
 
-  notesRef.current = localNotes;
-  nicknameRef.current = nickname;
+  useEffect(() => {
+    notesRef.current = localNotes;
+    nicknameRef.current = nickname;
+  }, [localNotes, nickname]);
 
   const ideaList = useMemo(() => Object.values(ideas), [ideas]);
-  const current = ideaList[index] ?? null;
+  const safeIndex = Math.min(index, Math.max(0, ideaList.length - 1));
+  const current = ideaList[safeIndex] ?? null;
 
   const upsertIdea = useCallback((idea: SharedTeamIdea) => {
     setIdeas((prev) => ({ ...prev, [idea.playerUid]: idea }));
@@ -114,11 +117,6 @@ export function TeamIdeaHub({
     const t = window.setTimeout(() => broadcastOwn(), 450);
     return () => window.clearTimeout(t);
   }, [active, localNotes, broadcastOwn]);
-  useEffect(() => {
-    if (index >= ideaList.length) {
-      setIndex(Math.max(0, ideaList.length - 1));
-    }
-  }, [ideaList.length, index]);
 
   if (!active) return null;
 
@@ -226,7 +224,7 @@ export function TeamIdeaHub({
 
             {ideaList.length > 1 ? (
               <p className="mt-3 text-center text-[10px] font-semibold tracking-wide text-slate-500">
-                {index + 1} / {ideaList.length}
+                {safeIndex + 1} / {ideaList.length}
               </p>
             ) : null}
           </motion.div>

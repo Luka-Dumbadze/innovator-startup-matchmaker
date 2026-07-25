@@ -65,14 +65,17 @@ export function AssignedTeamView({
   const guidance = PHASE_GUIDANCE[timer.mode];
   const bannerStyle = BANNER_STYLES[timer.mode];
 
-  const playerUid = useRef(getOrCreatePlayerUid()).current;
+  const [playerUid] = useState(() => getOrCreatePlayerUid());
   const [localNotes, setLocalNotes] = useState<IdeaNotes>(() => getIdeaNotes(session.id));
   const [foundationNotes, setFoundationNotes] = useState<IdeaNotes | null>(null);
   const [locked, setLocked] = useState(() => isPitchSubmitted(session.id));
   const [submitted, setSubmitted] = useState(() => isPitchSubmitted(session.id));
   const submittingRef = useRef(false);
   const localNotesRef = useRef(localNotes);
-  localNotesRef.current = localNotes;
+
+  useEffect(() => {
+    localNotesRef.current = localNotes;
+  }, [localNotes]);
 
   const onNotesChange = useCallback((notes: IdeaNotes) => {
     setLocalNotes(notes);

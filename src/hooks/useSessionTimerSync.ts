@@ -47,7 +47,9 @@ export function useSessionTimerSync(sessionId: string | null): SyncedTimerState 
   const modeRef = useRef<TimerMode>("solo_brainstorm");
   const noticeTimerRef = useRef<number | null>(null);
 
-  modeRef.current = mode;
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
   const clearLocalTick = useCallback(() => {
     if (intervalRef.current !== null) {

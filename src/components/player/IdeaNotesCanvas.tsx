@@ -37,15 +37,18 @@ export function IdeaNotesCanvas({
 }: IdeaNotesCanvasProps) {
   const [notes, setNotes] = useState<IdeaNotes>(() => getIdeaNotes(sessionId));
   const [copied, setCopied] = useState(false);
+  const [syncedExternal, setSyncedExternal] = useState<IdeaNotes | null>(null);
   const onNotesChangeRef = useRef(onNotesChange);
-  onNotesChangeRef.current = onNotesChange;
+
+  // Adjust local draft when parent pushes a foundation (render-time, not effect).
+  if (externalNotes !== null && externalNotes !== syncedExternal) {
+    setSyncedExternal(externalNotes);
+    setNotes(externalNotes);
+  }
 
   useEffect(() => {
-    if (!externalNotes) return;
-    setNotes(externalNotes);
-    saveIdeaNotes(sessionId, externalNotes);
-    onNotesChangeRef.current?.(externalNotes);
-  }, [externalNotes, sessionId]);
+    onNotesChangeRef.current = onNotesChange;
+  }, [onNotesChange]);
 
   useEffect(() => {
     if (locked) return;
