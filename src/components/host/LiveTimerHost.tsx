@@ -7,7 +7,6 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import {
-  MODE_LABELS,
   MODE_SECONDS,
   broadcastTimerEvent,
   formatTimerClock,
@@ -48,10 +47,16 @@ function playChime(): void {
 }
 
 const MODE_BUTTONS: { mode: TimerMode; label: string }[] = [
-  { mode: "solo_brainstorm", label: "2-Min" },
-  { mode: "team_brainstorm", label: "10-Min" },
-  { mode: "pitch", label: "1-Min" },
+  { mode: "solo_brainstorm", label: "🤫 2-წთ ინდივიდუალური" },
+  { mode: "team_brainstorm", label: "🤝 10-წთ გუნდური" },
+  { mode: "pitch", label: "🎤 1-წთ პიჩინგი" },
 ];
+
+const MODE_LABELS_KA: Record<TimerMode, string> = {
+  solo_brainstorm: "🤫 ინდივიდუალური ბრეინსტორმი",
+  team_brainstorm: "🤝 გუნდური ბრეინსტორმი",
+  pitch: "🎤 პიჩინგი",
+};
 
 type LiveTimerHostProps = {
   sessionId: string;
@@ -234,29 +239,29 @@ export function LiveTimerHost({ sessionId, className = "" }: LiveTimerHostProps)
 
   return (
     <div
-      className={`rounded-3xl border border-slate-700/80 bg-slate-900/90 p-4 xl:p-5 ${className}`}
+      className={`rounded-3xl border border-white/10 bg-slate-900/60 p-4 shadow-[0_0_50px_-20px_rgba(45,212,191,0.35)] backdrop-blur-xl xl:p-5 ${className}`}
     >
       <div className="mb-3 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-sm font-bold tracking-[0.16em] text-slate-300 uppercase">
+        <div className="flex items-center gap-2 font-[family-name:var(--font-noto-georgian)] text-sm font-bold tracking-wide text-slate-200">
           <Timer className="size-4 text-teal-300" />
-          Live timer
+          ⏱️ ტაიმერი
         </div>
         <span
           className={`size-2 rounded-full ${channelReady ? "bg-emerald-400" : "bg-slate-600"}`}
-          title={channelReady ? "Broadcast channel ready" : "Connecting…"}
+          title={channelReady ? "არხი მზადაა" : "იკავშირება…"}
         />
       </div>
 
-      <div className="mb-3 flex flex-wrap gap-1 rounded-xl bg-slate-950 p-1 ring-1 ring-slate-700">
+      <div className="mb-3 flex flex-col gap-1 rounded-xl bg-slate-950/80 p-1 ring-1 ring-slate-700">
         {MODE_BUTTONS.map(({ mode: key, label }) => (
           <button
             key={key}
             type="button"
             onClick={() => switchMode(key)}
-            className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-bold transition xl:text-sm ${
+            className={`rounded-lg px-2 py-2 text-left font-[family-name:var(--font-noto-georgian)] text-xs font-bold transition xl:text-sm ${
               mode === key
                 ? "bg-teal-500 text-slate-950"
-                : "text-slate-400 hover:text-white"
+                : "text-slate-400 hover:bg-slate-800 hover:text-white"
             }`}
           >
             {label}
@@ -264,11 +269,11 @@ export function LiveTimerHost({ sessionId, className = "" }: LiveTimerHostProps)
         ))}
       </div>
 
-      <p className="mb-1 text-center text-sm font-semibold text-slate-400">
-        {MODE_LABELS[mode]}
+      <p className="mb-1 text-center font-[family-name:var(--font-noto-georgian)] text-sm font-semibold text-slate-400">
+        {MODE_LABELS_KA[mode]}
         {flowActive ? (
-          <span className="ml-2 rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold tracking-wide text-amber-200 uppercase">
-            Flow
+          <span className="ml-2 rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold tracking-wide text-amber-200">
+            სრული სესია
           </span>
         ) : null}
       </p>
@@ -337,27 +342,27 @@ export function LiveTimerHost({ sessionId, className = "" }: LiveTimerHostProps)
         <button
           type="button"
           onClick={startFullFlow}
-          className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-amber-400"
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-slate-950 transition hover:bg-amber-400"
         >
           <Zap className="size-4" />
-          Full 12-Min Flow
+          ⚡ 12-წუთიანი სრული სესია
         </button>
         <div className="flex items-center justify-center gap-2">
           <button
             type="button"
             onClick={toggleRun}
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-500 px-4 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-teal-400"
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-500 px-4 py-2.5 font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-slate-950 transition hover:bg-teal-400"
           >
             {running ? <Pause className="size-4" /> : <Play className="size-4" />}
-            {running ? "Pause" : "Start"}
+            {running ? "⏸️ პაუზა" : "▶️ დაწყება"}
           </button>
           <button
             type="button"
             onClick={reset}
-            className="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2.5 text-sm font-bold text-white ring-1 ring-slate-600 transition hover:bg-slate-700"
+            className="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2.5 font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-white ring-1 ring-slate-600 transition hover:bg-slate-700"
           >
             <RotateCcw className="size-4" />
-            Reset
+            🔄 გადატვირთვა
           </button>
         </div>
       </div>

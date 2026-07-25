@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { CheckCircle2 } from "lucide-react";
 
 import type { Team } from "@/types/game";
-import { TOOL_SLOT_META } from "@/lib/constants/preset-words";
+import { HOST_TOOL_ROLES, hostTeamTitle } from "@/lib/constants/host-labels";
 
 type TeamHostCardProps = {
   team: Team;
@@ -14,11 +14,14 @@ type TeamHostCardProps = {
 export function TeamHostCard({ team, justJoined = false }: TeamHostCardProps) {
   const isFull = team.current_count >= team.max_capacity;
   const progress = Math.min(1, team.current_count / Math.max(1, team.max_capacity));
+  const title = hostTeamTitle(team.team_number, team.name);
+  const glowShadow = `${team.color}22`;
+  const glowBorder = `${team.color}80`;
 
   return (
     <motion.article
       layout
-      initial={{ scale: 1, boxShadow: "0 0 0 0 transparent" }}
+      initial={{ scale: 1 }}
       animate={
         justJoined
           ? {
@@ -26,20 +29,25 @@ export function TeamHostCard({ team, justJoined = false }: TeamHostCardProps) {
               boxShadow: [
                 `0 0 0 0 ${team.color}00`,
                 `0 0 36px 4px ${team.color}aa`,
-                `0 0 0 0 ${team.color}00`,
+                `0 0 24px 2px ${glowShadow}`,
               ],
             }
-          : { scale: 1, boxShadow: "0 0 0 0 transparent" }
+          : {
+              scale: 1,
+              boxShadow: isFull
+                ? "0 0 28px 2px rgba(52, 211, 153, 0.35)"
+                : `0 0 24px 2px ${glowShadow}`,
+            }
       }
       transition={{ duration: 0.7, ease: "easeOut" }}
-      className={`relative flex h-full flex-col overflow-hidden rounded-2xl border bg-slate-900/85 p-4 xl:p-5 ${
+      className={`relative flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border bg-slate-900/70 p-3 backdrop-blur-md xl:p-4 ${
         isFull
-          ? "border-emerald-400/80 ring-2 ring-emerald-400/70"
-          : "border-slate-700/90"
+          ? "border-emerald-400/80 ring-2 ring-emerald-400/60"
+          : "border-slate-700/60"
       }`}
       style={{
-        borderTopColor: isFull ? undefined : team.color,
-        borderTopWidth: isFull ? undefined : 3,
+        borderColor: isFull ? undefined : glowBorder,
+        borderWidth: 1.5,
       }}
     >
       {justJoined ? (
@@ -55,76 +63,71 @@ export function TeamHostCard({ team, justJoined = false }: TeamHostCardProps) {
         />
       ) : null}
 
-      <div className="relative mb-3 flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span
-              className="size-3.5 shrink-0 rounded-full ring-2 ring-white/20"
-              style={{ backgroundColor: team.color }}
-            />
-            <p className="truncate text-lg font-bold tracking-tight text-white xl:text-xl">
-              {team.name}
-            </p>
-          </div>
-          <p className="mt-0.5 text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase">
-            Team {team.team_number}
+      <div className="relative mb-2.5 flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="font-[family-name:var(--font-noto-georgian)] text-sm font-black leading-snug tracking-tight text-white xl:text-base">
+            {title}
           </p>
         </div>
 
         {isFull ? (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs font-black tracking-wide text-emerald-300 ring-1 ring-emerald-400/60 xl:text-sm">
-            FULL
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/25 px-2.5 py-1 text-xs font-black tracking-wide text-emerald-200 ring-1 ring-emerald-400/70 xl:text-sm">
+            FULL ✅
             <CheckCircle2 className="size-3.5" />
           </span>
         ) : (
-          <span className="tabular-nums text-lg font-black text-white xl:text-xl">
+          <span className="shrink-0 tabular-nums text-lg font-black text-white xl:text-xl">
             {team.current_count}
             <span className="text-slate-500">/{team.max_capacity}</span>
           </span>
         )}
       </div>
 
-      <div className="relative mb-3 rounded-xl bg-amber-500/20 px-3 py-2.5 ring-1 ring-amber-400/50">
-        <p className="text-[10px] font-bold tracking-[0.12em] text-amber-200/90 uppercase">
+      <div className="relative mb-2.5 rounded-xl border border-indigo-500/30 bg-indigo-950/80 px-2.5 py-2">
+        <p className="text-[10px] font-bold tracking-[0.1em] text-indigo-200/90 uppercase">
           🌍 გლობალური გამოწვევა
         </p>
-        <p className="mt-0.5 font-[family-name:var(--font-noto-georgian)] text-sm font-black leading-snug text-amber-50 xl:text-base">
+        <p className="mt-0.5 font-[family-name:var(--font-noto-georgian)] text-sm font-bold leading-snug text-amber-300 xl:text-base">
           {team.domain || "—"}
         </p>
       </div>
 
-      <ul className="relative mb-4 grid flex-1 grid-cols-3 gap-1.5">
-        {TOOL_SLOT_META.map((slot, index) => {
-          const word = team.words[index] ?? "—";
+      {/* Dedicated 3-column tool grid — each word isolated so Georgian glyphs never smash */}
+      <div className="relative mb-3 grid min-h-0 flex-1 grid-cols-3 gap-1.5">
+        {HOST_TOOL_ROLES.map((slot, index) => {
+          const word = (team.words[index] ?? "—").trim();
           return (
-            <li
-              key={slot.label}
-              className="flex flex-col items-center justify-center gap-0.5 rounded-lg bg-slate-950/70 px-1.5 py-2 text-center ring-1 ring-slate-700/80"
-              title={`${slot.label}: ${word}`}
+            <div
+              key={`${team.id}-tool-${index}`}
+              className="flex min-w-0 flex-col items-center justify-start gap-1 overflow-hidden rounded-xl border border-slate-600/50 bg-slate-950/80 p-1.5 text-center"
+              title={`${slot.icon} ${slot.role}: ${word}`}
             >
-              <span className="text-[10px] leading-none" aria-hidden>
+              <span className="text-sm leading-none" aria-hidden>
                 {slot.icon}
               </span>
-              <span className="truncate font-[family-name:var(--font-noto-georgian)] text-xs font-semibold text-slate-100 xl:text-sm">
+              <span className="text-[9px] font-bold tracking-wide text-slate-400 uppercase">
+                {slot.role}
+              </span>
+              <span className="w-full break-words font-[family-name:var(--font-noto-georgian)] text-[11px] font-semibold leading-snug text-slate-100 xl:text-xs">
                 {word}
               </span>
-            </li>
+            </div>
           );
         })}
-      </ul>
+      </div>
 
-      <div className="relative">
-        <div className="mb-1.5 flex items-center justify-between text-xs font-semibold text-slate-400">
-          <span>Slots</span>
-          <span className="tabular-nums">
-            {team.current_count} / {team.max_capacity}
-          </span>
+      <div className="relative mt-auto">
+        <div className="mb-1.5 flex items-center justify-between font-[family-name:var(--font-noto-georgian)] text-xs font-semibold text-slate-400">
+          <span>ადგილები: {team.current_count}/{team.max_capacity}</span>
         </div>
-        <div className="h-2.5 overflow-hidden rounded-full bg-slate-800">
+        <div className="h-2.5 overflow-hidden rounded-full bg-slate-800/90 ring-1 ring-slate-700/80">
           <motion.div
             className="h-full rounded-full"
             style={{
               backgroundColor: isFull ? "#34d399" : team.color,
+              boxShadow: isFull
+                ? "0 0 12px rgba(52, 211, 153, 0.7)"
+                : `0 0 10px ${team.color}88`,
             }}
             initial={{ width: `${progress * 100}%`, opacity: 1 }}
             animate={{ width: `${progress * 100}%`, opacity: 1 }}

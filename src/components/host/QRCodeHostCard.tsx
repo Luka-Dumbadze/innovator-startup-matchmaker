@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { Check, Copy, Link2, Smartphone } from "lucide-react";
-import { useState } from "react";
+import { Check, Copy, Link2 } from "lucide-react";
 
 type QRCodeHostCardProps = {
   playUrl?: string;
@@ -42,10 +41,9 @@ export function QRCodeHostCard({ playUrl: playUrlProp }: QRCodeHostCardProps) {
   }, [playUrl]);
 
   return (
-    <div className="flex h-full flex-col items-center justify-center rounded-3xl border border-slate-700/80 bg-slate-900/90 p-6 shadow-[0_0_60px_-20px_rgba(45,212,191,0.35)] xl:p-8">
-      <div className="mb-4 flex items-center gap-2 text-sm font-bold tracking-[0.2em] text-teal-300 uppercase">
-        <Smartphone className="size-4" />
-        Scan to join
+    <div className="flex h-full flex-col items-center justify-center rounded-3xl border border-teal-500/25 bg-slate-900/60 p-5 shadow-[0_0_60px_-18px_rgba(45,212,191,0.45)] backdrop-blur-xl xl:p-7">
+      <div className="mb-4 text-center font-[family-name:var(--font-noto-georgian)] text-sm font-bold leading-snug tracking-wide text-teal-200 xl:text-base">
+        📱 დაასკანერეთ შეერთებისთვის
       </div>
 
       <div className="rounded-[1.75rem] bg-white p-4 shadow-2xl ring-4 ring-teal-400/30">
@@ -58,16 +56,16 @@ export function QRCodeHostCard({ playUrl: playUrlProp }: QRCodeHostCardProps) {
             bgColor="#ffffff"
             fgColor="#020617"
             title="Join Startup Matchmaker"
-            className="size-[min(40vw,280px)] max-h-[36vh] w-auto"
+            className="size-[min(36vw,260px)] max-h-[34vh] w-auto"
           />
         ) : (
-          <div className="flex size-[280px] max-h-[36vh] items-center justify-center bg-slate-100 text-sm text-slate-500">
-            Preparing QR…
+          <div className="flex size-[260px] max-h-[34vh] items-center justify-center bg-slate-100 font-[family-name:var(--font-noto-georgian)] text-sm text-slate-500">
+            QR მზადდება…
           </div>
         )}
       </div>
 
-      <p className="mt-5 max-w-[20rem] break-all text-center font-mono text-sm text-slate-400">
+      <p className="mt-4 max-w-[18rem] break-all text-center font-mono text-xs text-slate-400 xl:text-sm">
         {playUrl || "…"}
       </p>
 
@@ -75,10 +73,10 @@ export function QRCodeHostCard({ playUrl: playUrlProp }: QRCodeHostCardProps) {
         type="button"
         onClick={copyLink}
         disabled={!playUrl}
-        className="mt-4 inline-flex items-center gap-2 rounded-2xl bg-slate-800 px-5 py-3 text-base font-semibold text-white ring-1 ring-slate-600 transition hover:bg-slate-700 disabled:opacity-50"
+        className="mt-4 inline-flex items-center gap-2 rounded-2xl bg-slate-800/90 px-5 py-3 font-[family-name:var(--font-noto-georgian)] text-sm font-semibold text-white ring-1 ring-slate-600 transition hover:bg-slate-700 disabled:opacity-50 xl:text-base"
       >
         {copied ? <Check className="size-5 text-emerald-400" /> : <Copy className="size-5" />}
-        {copied ? "Copied" : "Copy Direct URL"}
+        {copied ? "✅ დაკოპირდა" : "📋 ლინკის კოპირება"}
         <Link2 className="size-4 opacity-50" />
       </button>
     </div>
