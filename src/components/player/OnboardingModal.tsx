@@ -12,9 +12,9 @@ type OnboardingModalProps = {
   onSubmit: (profile: PlayerProfile) => void;
 };
 
-export function OnboardingModal({ initial, busy = false, onSubmit }: OnboardingModalProps) {
-  const [realName, setRealName] = useState(initial?.realName ?? "");
-  const [nickname, setNickname] = useState(initial?.nickname ?? "");
+export function OnboardingModal({ initial = null, busy = false, onSubmit }: OnboardingModalProps) {
+  const [realName, setRealName] = useState(() => initial?.realName?.trim() ?? "");
+  const [nickname, setNickname] = useState(() => initial?.nickname?.trim() ?? "");
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = (e: FormEvent) => {
@@ -71,11 +71,11 @@ export function OnboardingModal({ initial, busy = false, onSubmit }: OnboardingM
               type="text"
               value={realName}
               onChange={(e) => setRealName(e.target.value)}
-              placeholder="e.g. Luka Dumbadze"
+              placeholder="ჩაწერეთ სახელი და გვარი..."
               autoComplete="name"
               required
               disabled={busy}
-              className="mt-1.5 w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-3 text-base text-white outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/30 disabled:opacity-60"
+              className="mt-1.5 w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-3 font-[family-name:var(--font-noto-georgian)] text-base text-white outline-none placeholder:text-slate-500 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/30 disabled:opacity-60"
             />
           </label>
 
@@ -87,11 +87,11 @@ export function OnboardingModal({ initial, busy = false, onSubmit }: OnboardingM
               type="text"
               value={nickname}
               onChange={(e) => setNickname(e.target.value)}
-              placeholder="e.g. TechWiz"
+              placeholder="ჩაწერეთ ნიკნეიმი..."
               maxLength={24}
               required
               disabled={busy}
-              className="mt-1.5 w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-3 text-base text-white outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/30 disabled:opacity-60"
+              className="mt-1.5 w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-3 font-[family-name:var(--font-noto-georgian)] text-base text-white outline-none placeholder:text-slate-500 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/30 disabled:opacity-60"
             />
           </label>
 
