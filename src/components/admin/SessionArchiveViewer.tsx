@@ -154,6 +154,16 @@ function TeamArchivePanel({ team }: { team: SessionArchiveTeam }) {
                   by {idea.author_real_name || "—"} (@{idea.author_nickname}) ·{" "}
                   {formatStamp(idea.created_at)}
                 </p>
+                {idea.is_final_team_pitch ? (
+                  <p className="mt-2 inline-flex flex-wrap items-center gap-2 text-xs font-semibold">
+                    <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-emerald-800">
+                      👍 {idea.likes_count}
+                    </span>
+                    <span className="rounded-md bg-rose-100 px-2 py-0.5 text-rose-800">
+                      👎 {idea.dislikes_count}
+                    </span>
+                  </p>
+                ) : null}
               </article>
             ))}
           </div>

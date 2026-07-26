@@ -102,11 +102,52 @@ async function deactivateAllSessions(): Promise<void> {
   const supabase = createAdminSupabaseClient();
   const { error } = await supabase
     .from("daily_sessions")
-    .update({ is_active: false })
+    .update({ is_active: false, ended_at: new Date().toISOString() })
     .eq("is_active", true);
 
   if (error) {
     throw new Error(`Failed to deactivate sessions: ${error.message}`);
+  }
+}
+
+/**
+ * Mark a session complete: deactivate + stamp ended_at.
+ */
+export async function endSessionAction(
+  sessionId: string
+): Promise<ActionResult<{ sessionId: string }>> {
+  try {
+    if (!sessionId) {
+      return { ok: false, error: "sessionId is required" };
+    }
+
+    const supabase = createAdminSupabaseClient();
+    const { data, error } = await supabase
+      .from("daily_sessions")
+      .update({
+        is_active: false,
+        ended_at: new Date().toISOString(),
+      })
+      .eq("id", sessionId)
+      .select("id")
+      .maybeSingle();
+
+    if (error) {
+      return { ok: false, error: error.message };
+    }
+    if (!data) {
+      return { ok: false, error: "Session not found" };
+    }
+
+    revalidatePath("/admin");
+    revalidatePath("/host");
+    revalidatePath("/play");
+    return { ok: true, data: { sessionId: data.id } };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Unexpected error ending session",
+    };
   }
 }
 
@@ -205,7 +246,7 @@ export async function activateSession(
 
     const { error: activateError } = await supabase
       .from("daily_sessions")
-      .update({ is_active: true })
+      .update({ is_active: true, ended_at: null })
       .eq("id", sessionId);
 
     if (activateError) {
@@ -344,6 +385,8 @@ function mapSubmittedIdea(row: {
   one_sentence_solution: string;
   tools_integration: string;
   is_final_team_pitch: boolean;
+  likes_count?: number | null;
+  dislikes_count?: number | null;
   created_at: string;
 }): SubmittedIdea {
   return {
@@ -357,6 +400,8 @@ function mapSubmittedIdea(row: {
     one_sentence_solution: row.one_sentence_solution,
     tools_integration: row.tools_integration,
     is_final_team_pitch: row.is_final_team_pitch,
+    likes_count: Number(row.likes_count ?? 0),
+    dislikes_count: Number(row.dislikes_count ?? 0),
     created_at: row.created_at,
   };
 }
@@ -466,6 +511,8 @@ export async function exportSessionCSV(
     "Solution",
     "Tools Integration",
     "Is Final Pitch",
+    "Likes",
+    "Dislikes",
     "Submission Timestamp",
   ];
 
@@ -485,6 +532,8 @@ export async function exportSessionCSV(
         idea.one_sentence_solution,
         idea.tools_integration,
         idea.is_final_team_pitch ? "yes" : "no",
+        String(idea.likes_count),
+        String(idea.dislikes_count),
         idea.created_at,
       ]);
     }

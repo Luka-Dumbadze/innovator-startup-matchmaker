@@ -7,6 +7,7 @@ import {
   PHASE_GUIDANCE,
   parseTimerMode,
   sessionTimerChannelName,
+  VOTING_SECONDS,
 } from "@/lib/timer/session-timer";
 
 describe("session timer helpers", () => {
@@ -40,5 +41,9 @@ describe("session timer helpers", () => {
     expect(EXPIRY_INSTRUCTIONS.solo_brainstorm).toContain("ინდივიდუალური");
     expect(EXPIRY_INSTRUCTIONS.team_brainstorm).toContain("გუნდური");
     expect(EXPIRY_INSTRUCTIONS.pitch).toContain("პიჩინგი");
+  });
+
+  it("exposes a 15-second audience voting window", () => {
+    expect(VOTING_SECONDS).toBe(15);
   });
 });

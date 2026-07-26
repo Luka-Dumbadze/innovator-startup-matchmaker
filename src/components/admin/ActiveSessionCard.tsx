@@ -12,9 +12,14 @@ import {
   Users,
   CalendarDays,
   Sparkles,
+  Flag,
 } from "lucide-react";
 
-import { resetSessionAssignments, type ActiveSessionSnapshot } from "@/lib/actions/admin-actions";
+import {
+  endSessionAction,
+  resetSessionAssignments,
+  type ActiveSessionSnapshot,
+} from "@/lib/actions/admin-actions";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { SessionArchiveViewer } from "@/components/admin/SessionArchiveViewer";
 import { useToast } from "@/components/admin/ToastProvider";
@@ -40,7 +45,8 @@ export function ActiveSessionCard({ snapshot, playUrl }: ActiveSessionCardProps)
   const router = useRouter();
   const { push } = useToast();
   const [copied, setCopied] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
+  const [confirmEndOpen, setConfirmEndOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
   if (!snapshot) {
@@ -78,8 +84,21 @@ export function ActiveSessionCard({ snapshot, playUrl }: ActiveSessionCardProps)
         push(result.error, "error");
         return;
       }
-      setConfirmOpen(false);
+      setConfirmResetOpen(false);
       push(`Reset complete — cleared ${result.data.cleared} assignments`, "success");
+      router.refresh();
+    });
+  };
+
+  const onEndSession = () => {
+    startTransition(async () => {
+      const result = await endSessionAction(session.id);
+      if (!result.ok) {
+        push(result.error, "error");
+        return;
+      }
+      setConfirmEndOpen(false);
+      push("Session ended — archived for export", "success");
       router.refresh();
     });
   };
@@ -146,14 +165,24 @@ export function ActiveSessionCard({ snapshot, playUrl }: ActiveSessionCardProps)
             ))}
           </div>
 
-          <button
-            type="button"
-            onClick={() => setConfirmOpen(true)}
-            className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
-          >
-            <RotateCcw className="size-4" />
-            Reset Player Assignments
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirmResetOpen(true)}
+              className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
+            >
+              <RotateCcw className="size-4" />
+              Reset Player Assignments
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmEndOpen(true)}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-3.5 py-2.5 font-[family-name:var(--font-noto-georgian)] text-sm font-semibold text-white transition hover:bg-slate-800"
+            >
+              <Flag className="size-4" />
+              🏁 სესიის დასრულება (End Session)
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-col items-center justify-center rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-teal-950 p-6 text-center text-white shadow-inner">
@@ -196,14 +225,25 @@ export function ActiveSessionCard({ snapshot, playUrl }: ActiveSessionCardProps)
       </div>
 
       <ConfirmDialog
-        open={confirmOpen}
+        open={confirmResetOpen}
         title="Reset all player assignments?"
         description={`This clears every student from “${session.date_label}” and sets all team counts back to 0. Students will need to scan again.`}
         confirmLabel="Reset assignments"
         destructive
         busy={pending}
-        onClose={() => !pending && setConfirmOpen(false)}
+        onClose={() => !pending && setConfirmResetOpen(false)}
         onConfirm={onReset}
+      />
+
+      <ConfirmDialog
+        open={confirmEndOpen}
+        title="End this session?"
+        description={`“${session.date_label}” will be deactivated and stamped with an end time. Students and the host screen will stop seeing it as live. Archive / CSV export remains available.`}
+        confirmLabel="🏁 End session"
+        destructive
+        busy={pending}
+        onClose={() => !pending && setConfirmEndOpen(false)}
+        onConfirm={onEndSession}
       />
     </>
   );

@@ -111,3 +111,44 @@ export async function submitFinalTeamPitch(input: {
   const { error } = await supabase.from("submitted_ideas").insert(row);
   if (error) throw new Error(error.message);
 }
+
+export type PitchVoteType = "like" | "dislike";
+
+export type CastPitchVoteResult = {
+  likes_count: number;
+  dislikes_count: number;
+  vote_type: PitchVoteType;
+};
+
+/** Cast (or change) an audience like/dislike for a team's pitch. */
+export async function castPitchVote(input: {
+  sessionId: string;
+  teamId: string;
+  voterUid: string;
+  voteType: PitchVoteType;
+}): Promise<CastPitchVoteResult> {
+  const supabase = createBrowserSupabaseClient();
+
+  const { data, error } = await supabase.rpc("cast_pitch_vote", {
+    p_session_id: input.sessionId,
+    p_team_id: input.teamId,
+    p_voter_uid: input.voterUid,
+    p_vote_type: input.voteType,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const raw = data as {
+    likes_count?: number;
+    dislikes_count?: number;
+    vote_type?: string;
+  } | null;
+
+  return {
+    likes_count: Number(raw?.likes_count ?? 0),
+    dislikes_count: Number(raw?.dislikes_count ?? 0),
+    vote_type: raw?.vote_type === "dislike" ? "dislike" : "like",
+  };
+}

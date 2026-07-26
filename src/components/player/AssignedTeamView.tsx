@@ -9,6 +9,7 @@ import { ElevatorPitchView } from "@/components/player/ElevatorPitchView";
 import { IdeaNotesCanvas } from "@/components/player/IdeaNotesCanvas";
 import { TeamIdeaHub } from "@/components/player/TeamIdeaHub";
 import { TimerExpiredModal } from "@/components/player/TimerExpiredModal";
+import { VotingCard } from "@/components/player/VotingCard";
 import { useSessionTimerSync } from "@/hooks/useSessionTimerSync";
 import { submitFinalTeamPitch } from "@/lib/supabase/client";
 import {
@@ -293,6 +294,13 @@ export function AssignedTeamView({
     isMyTeamOnStage && pitchSelection.selectedPitcherUid === playerUid;
   const isTeammateOnStage = isMyTeamOnStage && !isSelectedPitcher;
 
+  const voting = timer.voting;
+  const showAudienceVote =
+    !!voting &&
+    voting.open &&
+    voting.teamId !== team.id &&
+    voting.secondsRemaining > 0;
+
   return (
     <div className="mx-auto w-full max-w-md space-y-5 px-4 py-6 pb-10">
       <motion.header
@@ -498,6 +506,20 @@ export function AssignedTeamView({
             key={`pitcher-${pitchSelection.teamId}-${pitchSelection.selectedPitcherUid}`}
             selection={pitchSelection}
             onDismiss={timer.dismissPitchSelection}
+          />
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showAudienceVote && voting ? (
+          <VotingCard
+            key={`vote-${voting.teamId}`}
+            sessionId={session.id}
+            teamId={voting.teamId}
+            teamName={voting.teamName}
+            teamColor={voting.teamColor}
+            voterUid={playerUid}
+            secondsRemaining={voting.secondsRemaining}
           />
         ) : null}
       </AnimatePresence>

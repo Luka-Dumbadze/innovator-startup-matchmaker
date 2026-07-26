@@ -18,6 +18,9 @@ import {
   type TimerPausedPayload,
   type TimerResetPayload,
   type TimerStartedPayload,
+  type VoteTallyPayload,
+  type VotingClosedPayload,
+  type VotingOpenedPayload,
 } from "@/lib/timer/session-timer";
 
 export type PitchSelectionState = {
@@ -37,6 +40,16 @@ export type PitchSelectionState = {
   totalTeams: number;
 };
 
+export type VotingWindowState = {
+  teamId: string;
+  teamName: string;
+  teamColor: string | null;
+  secondsRemaining: number;
+  open: boolean;
+  likesCount: number;
+  dislikesCount: number;
+};
+
 export type SyncedTimerState = {
   mode: TimerMode;
   secondsRemaining: number;
@@ -46,6 +59,8 @@ export type SyncedTimerState = {
   activePitchTeamId: string | null;
   /** Latest host random team + pitcher selection broadcast. */
   pitchSelection: PitchSelectionState | null;
+  /** Audience voting window after a pitch expires. */
+  voting: VotingWindowState | null;
   dismissExpiredAlert: () => void;
   dismissPitchSelection: () => void;
 };
@@ -90,12 +105,15 @@ export function useSessionTimerSync(
   const [expiredAlert, setExpiredAlert] = useState(false);
   const [activePitchTeamId, setActivePitchTeamId] = useState<string | null>(null);
   const [pitchSelection, setPitchSelection] = useState<PitchSelectionState | null>(null);
+  const [voting, setVoting] = useState<VotingWindowState | null>(null);
 
   const intervalRef = useRef<number | null>(null);
+  const votingTickRef = useRef<number | null>(null);
   const vibrateRepeatRef = useRef<number | null>(null);
   const expiredLockRef = useRef(false);
   const modeRef = useRef<TimerMode>("solo_brainstorm");
   const endsAtRef = useRef<number | null>(null);
+  const votingEndsAtRef = useRef<number | null>(null);
   const activePitchTeamIdRef = useRef<string | null>(null);
   const myTeamIdRef = useRef<string | null>(myTeamId);
 
@@ -115,6 +133,13 @@ export function useSessionTimerSync(
     if (intervalRef.current !== null) {
       window.clearInterval(intervalRef.current);
       intervalRef.current = null;
+    }
+  }, []);
+
+  const clearVotingTick = useCallback(() => {
+    if (votingTickRef.current !== null) {
+      window.clearInterval(votingTickRef.current);
+      votingTickRef.current = null;
     }
   }, []);
 
@@ -140,6 +165,46 @@ export function useSessionTimerSync(
   const dismissPitchSelection = useCallback(() => {
     setPitchSelection(null);
   }, []);
+
+  const startVotingCountdown = useCallback(
+    (payload: VotingOpenedPayload) => {
+      clearVotingTick();
+      const endsAt =
+        typeof payload.endsAt === "number" && payload.endsAt > Date.now()
+          ? payload.endsAt
+          : Date.now() + Math.max(0, payload.secondsRemaining) * 1000;
+      votingEndsAtRef.current = endsAt;
+      setVoting({
+        teamId: payload.teamId,
+        teamName: payload.teamName,
+        teamColor: payload.teamColor ?? null,
+        secondsRemaining: Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)),
+        open: true,
+        likesCount: Number(payload.likesCount ?? 0),
+        dislikesCount: Number(payload.dislikesCount ?? 0),
+      });
+
+      votingTickRef.current = window.setInterval(() => {
+        const end = votingEndsAtRef.current;
+        if (end == null) return;
+        const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+        setVoting((prev) =>
+          prev
+            ? {
+                ...prev,
+                secondsRemaining: left,
+                open: left > 0,
+              }
+            : prev
+        );
+        if (left <= 0) {
+          clearVotingTick();
+          votingEndsAtRef.current = null;
+        }
+      }, 250);
+    },
+    [clearVotingTick]
+  );
 
   const shouldAlarmForPitch = useCallback((targetTeamId: string | null | undefined) => {
     const mine = myTeamIdRef.current;
@@ -311,15 +376,67 @@ export function useSessionTimerSync(
         if (!data?.targetTeamId) return;
         triggerExpired("pitch", data.targetTeamId);
       })
+      .on("broadcast", { event: "VOTING_OPENED" }, ({ payload }) => {
+        const data = payload as VotingOpenedPayload;
+        if (!data?.teamId) return;
+        startVotingCountdown(data);
+      })
+      .on("broadcast", { event: "VOTING_CLOSED" }, ({ payload }) => {
+        const data = payload as VotingClosedPayload;
+        clearVotingTick();
+        votingEndsAtRef.current = null;
+        setVoting((prev) => {
+          if (!prev) {
+            if (!data?.teamId) return null;
+            return {
+              teamId: data.teamId,
+              teamName: "",
+              teamColor: null,
+              secondsRemaining: 0,
+              open: false,
+              likesCount: Number(data.likesCount ?? 0),
+              dislikesCount: Number(data.dislikesCount ?? 0),
+            };
+          }
+          return {
+            ...prev,
+            open: false,
+            secondsRemaining: 0,
+            likesCount: Number(data?.likesCount ?? prev.likesCount),
+            dislikesCount: Number(data?.dislikesCount ?? prev.dislikesCount),
+          };
+        });
+      })
+      .on("broadcast", { event: "VOTE_TALLY" }, ({ payload }) => {
+        const data = payload as VoteTallyPayload;
+        if (!data?.teamId) return;
+        setVoting((prev) =>
+          prev && prev.teamId === data.teamId
+            ? {
+                ...prev,
+                likesCount: Number(data.likesCount ?? prev.likesCount),
+                dislikesCount: Number(data.dislikesCount ?? prev.dislikesCount),
+              }
+            : prev
+        );
+      })
       .subscribe();
 
     return () => {
       clearLocalTick();
+      clearVotingTick();
       clearVibrateLoop();
       stopExpiryAlarm();
       void supabase.removeChannel(channel);
     };
-  }, [sessionId, clearLocalTick, clearVibrateLoop, triggerExpired]);
+  }, [
+    sessionId,
+    clearLocalTick,
+    clearVotingTick,
+    clearVibrateLoop,
+    triggerExpired,
+    startVotingCountdown,
+  ]);
 
   useEffect(() => {
     if (!running) {
@@ -362,8 +479,9 @@ export function useSessionTimerSync(
     return () => {
       stopExpiryAlarm();
       clearVibrateLoop();
+      clearVotingTick();
     };
-  }, [clearVibrateLoop]);
+  }, [clearVibrateLoop, clearVotingTick]);
 
   return {
     mode,
@@ -372,6 +490,7 @@ export function useSessionTimerSync(
     expiredAlert,
     activePitchTeamId,
     pitchSelection,
+    voting,
     dismissExpiredAlert,
     dismissPitchSelection,
   };

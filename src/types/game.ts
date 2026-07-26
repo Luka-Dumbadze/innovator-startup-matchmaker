@@ -12,6 +12,8 @@ export interface DailySession {
   date_label: string;
   is_active: boolean;
   created_at: string;
+  /** Set when mentor ends the session; null while still open. */
+  ended_at: string | null;
 }
 
 /**
@@ -73,6 +75,8 @@ export interface SubmittedIdea {
   one_sentence_solution: string;
   tools_integration: string;
   is_final_team_pitch: boolean;
+  likes_count: number;
+  dislikes_count: number;
   created_at: string;
 }
 

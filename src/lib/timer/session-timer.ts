@@ -10,7 +10,10 @@ export type TimerBroadcastEvent =
   | "TIMER_EXPIRED"
   | "PITCH_STARTED"
   | "PITCH_EXPIRED"
-  | "PITCH_SELECTED";
+  | "PITCH_SELECTED"
+  | "VOTING_OPENED"
+  | "VOTING_CLOSED"
+  | "VOTE_TALLY";
 
 export type TimerStartedPayload = {
   mode: TimerMode;
@@ -62,6 +65,7 @@ export type PitchSelectedPayload = {
   teamColor?: string;
   selectedPitcherUid: string;
   selectedPitcherNickname: string;
+  selectedPitcherRealName?: string;
   startupName: string;
   solution: string;
   tools: string;
@@ -73,6 +77,29 @@ export type PitchSelectedPayload = {
   totalTeams: number;
 };
 
+/** Audience voting window after a 1-minute pitch expires. */
+export type VotingOpenedPayload = {
+  teamId: string;
+  teamName: string;
+  teamColor?: string;
+  secondsRemaining: number;
+  endsAt: number;
+  likesCount?: number;
+  dislikesCount?: number;
+};
+
+export type VotingClosedPayload = {
+  teamId: string;
+  likesCount: number;
+  dislikesCount: number;
+};
+
+export type VoteTallyPayload = {
+  teamId: string;
+  likesCount: number;
+  dislikesCount: number;
+};
+
 export type TimerBroadcastPayload =
   | TimerStartedPayload
   | TimerPausedPayload
@@ -80,13 +107,19 @@ export type TimerBroadcastPayload =
   | TimerExpiredPayload
   | PitchStartedPayload
   | PitchExpiredPayload
-  | PitchSelectedPayload;
+  | PitchSelectedPayload
+  | VotingOpenedPayload
+  | VotingClosedPayload
+  | VoteTallyPayload;
 
 export const MODE_SECONDS: Record<TimerMode, number> = {
   solo_brainstorm: 2 * 60,
   team_brainstorm: 10 * 60,
   pitch: 60,
 };
+
+/** Audience like/dislike window after each pitch. */
+export const VOTING_SECONDS = 15;
 
 export const MODE_LABELS: Record<TimerMode, string> = {
   solo_brainstorm: "2-Min Solo",

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Pause, RotateCcw, Timer, Mic2, Dices } from "lucide-react";
+import { Pause, RotateCcw, Timer, Mic2, Dices, ThumbsUp, ThumbsDown } from "lucide-react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
@@ -10,6 +10,7 @@ import { hostTeamTitle } from "@/lib/constants/host-labels";
 import { TOOL_SLOT_META } from "@/lib/constants/preset-words";
 import {
   MODE_SECONDS,
+  VOTING_SECONDS,
   broadcastTimerEvent,
   formatTimerClock,
   sessionTimerChannelName,
@@ -55,6 +56,12 @@ function pickRandom<T>(items: readonly T[]): T | null {
   return items[Math.floor(Math.random() * items.length)]!;
 }
 
+type RosterMember = {
+  player_uid: string;
+  nickname: string;
+  real_name: string;
+};
+
 const START_BUTTONS: { mode: TimerMode; label: string }[] = [
   { mode: "solo_brainstorm", label: "▶️ 2-წთ ინდივიდუალური დაწყება" },
   { mode: "team_brainstorm", label: "▶️ 10-წთ გუნდური დაწყება" },
@@ -71,6 +78,7 @@ type StageSelection = {
   team: Team;
   pitcherUid: string;
   pitcherNickname: string;
+  pitcherRealName: string;
   startupName: string;
   solution: string;
   tools: string;
@@ -101,15 +109,25 @@ export function LiveTimerHost({
   const [channelReady, setChannelReady] = useState(false);
   const [pitchedTeamIds, setPitchedTeamIds] = useState<string[]>([]);
   const [stage, setStage] = useState<StageSelection | null>(null);
+  const [triedPitcherUids, setTriedPitcherUids] = useState<string[]>([]);
   const [pickError, setPickError] = useState<string | null>(null);
   const [pickPending, startPick] = useTransition();
 
+  const [votingOpen, setVotingOpen] = useState(false);
+  const [votingRemaining, setVotingRemaining] = useState(0);
+  const [likesCount, setLikesCount] = useState(0);
+  const [dislikesCount, setDislikesCount] = useState(0);
+
   const chimedRef = useRef(false);
   const intervalRef = useRef<number | null>(null);
+  const votingIntervalRef = useRef<number | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const modeRef = useRef(mode);
   const endsAtRef = useRef<number | null>(null);
+  const votingEndsAtRef = useRef<number | null>(null);
   const stageTeamIdRef = useRef<string | null>(null);
+  const stageRef = useRef<StageSelection | null>(null);
+  const votingOpenRef = useRef(false);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -117,7 +135,12 @@ export function LiveTimerHost({
 
   useEffect(() => {
     stageTeamIdRef.current = stage?.team.id ?? null;
+    stageRef.current = stage;
   }, [stage]);
+
+  useEffect(() => {
+    votingOpenRef.current = votingOpen;
+  }, [votingOpen]);
 
   const duration = MODE_SECONDS[mode];
   const progress = remaining / duration;
@@ -128,10 +151,11 @@ export function LiveTimerHost({
   const progressRatio = totalTeams === 0 ? 0 : pitchedCount / totalTeams;
 
   const ringColor = useMemo(() => {
+    if (votingOpen) return "#38bdf8";
     if (isDone || isUrgent) return "#f43f5e";
     if (progress <= 0.33) return "#eab308";
     return "#22c55e";
-  }, [isDone, isUrgent, progress]);
+  }, [isDone, isUrgent, progress, votingOpen]);
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
@@ -152,6 +176,61 @@ export function LiveTimerHost({
     };
   }, [sessionId]);
 
+  // Live vote tallies from submitted_ideas updates.
+  useEffect(() => {
+    if (!stage) return;
+    const teamId = stage.team.id;
+    const supabase = createBrowserSupabaseClient();
+
+    const loadTallies = async () => {
+      const { data } = await supabase
+        .from("submitted_ideas")
+        .select("likes_count, dislikes_count")
+        .eq("session_id", sessionId)
+        .eq("team_id", teamId)
+        .eq("is_final_team_pitch", true)
+        .maybeSingle();
+      if (data) {
+        setLikesCount(Number(data.likes_count ?? 0));
+        setDislikesCount(Number(data.dislikes_count ?? 0));
+      }
+    };
+
+    void loadTallies();
+
+    const channel = supabase
+      .channel(`pitch-votes-${sessionId}-${teamId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "submitted_ideas",
+          filter: `team_id=eq.${teamId}`,
+        },
+        (payload) => {
+          const row = payload.new as {
+            likes_count?: number;
+            dislikes_count?: number;
+            is_final_team_pitch?: boolean;
+          };
+          if (row.is_final_team_pitch === false) return;
+          setLikesCount(Number(row.likes_count ?? 0));
+          setDislikesCount(Number(row.dislikes_count ?? 0));
+          void broadcastTimerEvent(channelRef.current, "VOTE_TALLY", {
+            teamId,
+            likesCount: Number(row.likes_count ?? 0),
+            dislikesCount: Number(row.dislikes_count ?? 0),
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [sessionId, stage]);
+
   const clearTick = () => {
     if (intervalRef.current !== null) {
       window.clearInterval(intervalRef.current);
@@ -159,27 +238,74 @@ export function LiveTimerHost({
     }
   };
 
-  const broadcastPitchSelected = useCallback((selection: StageSelection) => {
-    const payload: PitchSelectedPayload = {
-      teamId: selection.team.id,
-      teamName: hostTeamTitle(selection.team.team_number, selection.team.name),
-      teamColor: selection.team.color,
-      selectedPitcherUid: selection.pitcherUid,
-      selectedPitcherNickname: selection.pitcherNickname,
-      startupName: selection.startupName,
-      solution: selection.solution,
-      tools: selection.tools,
-      toolWords: selection.team.words,
-      nextUpTeamName: selection.nextUpTeam
-        ? hostTeamTitle(selection.nextUpTeam.team_number, selection.nextUpTeam.name)
-        : null,
-      nextUpTeamColor: selection.nextUpTeam?.color ?? null,
-      progressText: selection.progressText,
-      pitchedCount: selection.pitchedCount,
-      totalTeams: sortedTeams.length,
-    };
-    void broadcastTimerEvent(channelRef.current, "PITCH_SELECTED", payload);
-  }, [sortedTeams.length]);
+  const clearVotingTick = () => {
+    if (votingIntervalRef.current !== null) {
+      window.clearInterval(votingIntervalRef.current);
+      votingIntervalRef.current = null;
+    }
+  };
+
+  const broadcastPitchSelected = useCallback(
+    (selection: StageSelection) => {
+      const payload: PitchSelectedPayload = {
+        teamId: selection.team.id,
+        teamName: hostTeamTitle(selection.team.team_number, selection.team.name),
+        teamColor: selection.team.color,
+        selectedPitcherUid: selection.pitcherUid,
+        selectedPitcherNickname: selection.pitcherNickname,
+        selectedPitcherRealName: selection.pitcherRealName,
+        startupName: selection.startupName,
+        solution: selection.solution,
+        tools: selection.tools,
+        toolWords: selection.team.words,
+        nextUpTeamName: selection.nextUpTeam
+          ? hostTeamTitle(selection.nextUpTeam.team_number, selection.nextUpTeam.name)
+          : null,
+        nextUpTeamColor: selection.nextUpTeam?.color ?? null,
+        progressText: selection.progressText,
+        pitchedCount: selection.pitchedCount,
+        totalTeams: sortedTeams.length,
+      };
+      void broadcastTimerEvent(channelRef.current, "PITCH_SELECTED", payload);
+    },
+    [sortedTeams.length]
+  );
+
+  const fetchRoster = useCallback(
+    async (teamId: string): Promise<RosterMember[]> => {
+      const supabase = createBrowserSupabaseClient();
+      const { data, error } = await supabase
+        .from("player_assignments")
+        .select("player_uid, nickname, real_name")
+        .eq("session_id", sessionId)
+        .eq("team_id", teamId);
+      if (error) throw new Error(error.message);
+      return (data ?? []).map((m) => ({
+        player_uid: m.player_uid,
+        nickname: m.nickname ?? "",
+        real_name: m.real_name ?? "",
+      }));
+    },
+    [sessionId]
+  );
+
+  const fetchFinalIdea = useCallback(
+    async (teamId: string) => {
+      const supabase = createBrowserSupabaseClient();
+      const { data, error } = await supabase
+        .from("submitted_ideas")
+        .select(
+          "startup_name, one_sentence_solution, tools_integration, author_nickname, likes_count, dislikes_count"
+        )
+        .eq("session_id", sessionId)
+        .eq("team_id", teamId)
+        .eq("is_final_team_pitch", true)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      return data;
+    },
+    [sessionId]
+  );
 
   const pickNextTeamAndPitcher = useCallback(() => {
     startPick(async () => {
@@ -197,30 +323,11 @@ export function LiveTimerHost({
       }
 
       try {
-        const supabase = createBrowserSupabaseClient();
+        const [roster, idea] = await Promise.all([
+          fetchRoster(chosen.id),
+          fetchFinalIdea(chosen.id),
+        ]);
 
-        const [{ data: members, error: membersError }, { data: idea, error: ideaError }] =
-          await Promise.all([
-            supabase
-              .from("player_assignments")
-              .select("player_uid, nickname")
-              .eq("session_id", sessionId)
-              .eq("team_id", chosen.id),
-            supabase
-              .from("submitted_ideas")
-              .select(
-                "startup_name, one_sentence_solution, tools_integration, author_player_uid, author_nickname"
-              )
-              .eq("session_id", sessionId)
-              .eq("team_id", chosen.id)
-              .eq("is_final_team_pitch", true)
-              .maybeSingle(),
-          ]);
-
-        if (membersError) throw new Error(membersError.message);
-        if (ideaError) throw new Error(ideaError.message);
-
-        const roster = members ?? [];
         if (roster.length === 0) {
           setPickError("ამ გუნდში მოთამაშეები არ არიან");
           return;
@@ -242,6 +349,7 @@ export function LiveTimerHost({
           team: chosen,
           pitcherUid: pitcher.player_uid,
           pitcherNickname: pitcher.nickname || idea?.author_nickname || "Pitcher",
+          pitcherRealName: pitcher.real_name || "—",
           startupName: idea?.startup_name?.trim() || "Untitled Startup",
           solution: idea?.one_sentence_solution?.trim() || "—",
           tools: idea?.tools_integration?.trim() || "—",
@@ -251,13 +359,83 @@ export function LiveTimerHost({
         };
 
         setPitchedTeamIds(nextPitched);
+        setTriedPitcherUids([pitcher.player_uid]);
         setStage(selection);
+        setLikesCount(Number(idea?.likes_count ?? 0));
+        setDislikesCount(Number(idea?.dislikes_count ?? 0));
+        setVotingOpen(false);
+        setVotingRemaining(0);
+        clearVotingTick();
+        votingEndsAtRef.current = null;
         broadcastPitchSelected(selection);
       } catch (err) {
         setPickError(err instanceof Error ? err.message : "არჩევა ვერ მოხერხდა");
       }
     });
-  }, [sortedTeams, pitchedTeamIds, sessionId, broadcastPitchSelected]);
+  }, [
+    sortedTeams,
+    pitchedTeamIds,
+    fetchRoster,
+    fetchFinalIdea,
+    broadcastPitchSelected,
+  ]);
+
+  const rerollPitcher = useCallback(() => {
+    startPick(async () => {
+      setPickError(null);
+      const current = stageRef.current;
+      if (!current) {
+        setPickError("ჯერ აირჩიეთ გუნდი");
+        return;
+      }
+
+      try {
+        const roster = await fetchRoster(current.team.id);
+        const candidates = roster.filter(
+          (m) => !triedPitcherUids.includes(m.player_uid)
+        );
+        const pool = candidates.length > 0 ? candidates : roster.filter(
+          (m) => m.player_uid !== current.pitcherUid
+        );
+
+        if (pool.length === 0) {
+          setPickError("სხვა პრეზენტატორი ამ გუნდში არ არის");
+          return;
+        }
+
+        const pitcher = pickRandom(pool);
+        if (!pitcher) {
+          setPickError("პრეზენტატორის არჩევა ვერ მოხერხდა");
+          return;
+        }
+
+        const nextTried =
+          candidates.length > 0
+            ? [...triedPitcherUids, pitcher.player_uid]
+            : [pitcher.player_uid];
+
+        const next: StageSelection = {
+          ...current,
+          pitcherUid: pitcher.player_uid,
+          pitcherNickname: pitcher.nickname || "Pitcher",
+          pitcherRealName: pitcher.real_name || "—",
+        };
+
+        setTriedPitcherUids(nextTried);
+        setStage(next);
+        broadcastPitchSelected(next);
+      } catch (err) {
+        setPickError(err instanceof Error ? err.message : "Re-roll ვერ მოხერხდა");
+      }
+    });
+  }, [triedPitcherUids, fetchRoster, broadcastPitchSelected]);
+
+  const likesRef = useRef(likesCount);
+  const dislikesRef = useRef(dislikesCount);
+  useEffect(() => {
+    likesRef.current = likesCount;
+    dislikesRef.current = dislikesCount;
+  }, [likesCount, dislikesCount]);
 
   const startMode = useCallback(
     (next: TimerMode, seconds?: number) => {
@@ -265,6 +443,11 @@ export function LiveTimerHost({
         setPickError("ჯერ აირჩიეთ გუნდი & პრეზენტატორი");
         return;
       }
+
+      setVotingOpen(false);
+      setVotingRemaining(0);
+      clearVotingTick();
+      votingEndsAtRef.current = null;
 
       const secs = seconds ?? MODE_SECONDS[next];
       const endsAt = Date.now() + secs * 1000;
@@ -358,14 +541,64 @@ export function LiveTimerHost({
       void broadcastTimerEvent(channelRef.current, "PITCH_EXPIRED", {
         targetTeamId,
       });
+
+      // Open 15s audience voting window for this pitch.
+      const current = stageRef.current;
+      if (current && !votingOpenRef.current) {
+        clearVotingTick();
+        const endsAt = Date.now() + VOTING_SECONDS * 1000;
+        votingEndsAtRef.current = endsAt;
+        setVotingOpen(true);
+        setVotingRemaining(VOTING_SECONDS);
+
+        const teamName = hostTeamTitle(current.team.team_number, current.team.name);
+        void broadcastTimerEvent(channelRef.current, "VOTING_OPENED", {
+          teamId: current.team.id,
+          teamName,
+          teamColor: current.team.color,
+          secondsRemaining: VOTING_SECONDS,
+          endsAt,
+          likesCount: likesRef.current,
+          dislikesCount: dislikesRef.current,
+        });
+
+        votingIntervalRef.current = window.setInterval(() => {
+          const end = votingEndsAtRef.current;
+          if (end == null) return;
+          const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+          setVotingRemaining(left);
+          if (left <= 0) {
+            clearVotingTick();
+            votingEndsAtRef.current = null;
+            setVotingOpen(false);
+            setVotingRemaining(0);
+            void broadcastTimerEvent(channelRef.current, "VOTING_CLOSED", {
+              teamId: current.team.id,
+              likesCount: likesRef.current,
+              dislikesCount: dislikesRef.current,
+            });
+          }
+        }, 250);
+      }
     }
   }, [remaining, running]);
+
+  useEffect(() => {
+    return () => {
+      clearTick();
+      clearVotingTick();
+    };
+  }, []);
 
   const reset = () => {
     endsAtRef.current = null;
     setRunning(false);
     setRemaining(duration);
     chimedRef.current = false;
+    setVotingOpen(false);
+    setVotingRemaining(0);
+    clearVotingTick();
+    votingEndsAtRef.current = null;
     void broadcastTimerEvent(channelRef.current, "TIMER_RESET", {
       mode,
       secondsRemaining: duration,
@@ -385,14 +618,25 @@ export function LiveTimerHost({
   const resetPitchQueue = () => {
     setPitchedTeamIds([]);
     setStage(null);
+    setTriedPitcherUids([]);
     setPickError(null);
+    setVotingOpen(false);
+    setVotingRemaining(0);
+    setLikesCount(0);
+    setDislikesCount(0);
+    clearVotingTick();
+    votingEndsAtRef.current = null;
   };
 
   const size = 148;
   const stroke = 10;
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
-  const dashOffset = circumference * (1 - progress);
+  const displayRemaining = votingOpen ? votingRemaining : remaining;
+  const displayProgress = votingOpen
+    ? votingRemaining / VOTING_SECONDS
+    : progress;
+  const dashOffset = circumference * (1 - displayProgress);
 
   return (
     <div
@@ -429,7 +673,6 @@ export function LiveTimerHost({
         })}
       </div>
 
-      {/* Automated random pitch picker */}
       <div className="shrink-0 space-y-2 rounded-xl border border-amber-400/25 bg-amber-500/10 p-3">
         <button
           type="button"
@@ -496,8 +739,8 @@ export function LiveTimerHost({
       </div>
 
       <p className="shrink-0 text-center font-[family-name:var(--font-noto-georgian)] text-sm font-semibold text-slate-400">
-        {MODE_LABELS_KA[mode]}
-        {running ? (
+        {votingOpen ? "🗳️ ხმის მიცემა (15 წმ)" : MODE_LABELS_KA[mode]}
+        {running || votingOpen ? (
           <span className="ml-2 rounded-full bg-rose-500/20 px-2 py-0.5 text-[10px] font-bold tracking-wide text-rose-200">
             პირდაპირ
           </span>
@@ -523,13 +766,12 @@ export function LiveTimerHost({
             strokeWidth={stroke}
             strokeLinecap="round"
             strokeDasharray={circumference}
-            initial={{ strokeDashoffset: dashOffset, opacity: 1 }}
             animate={{
               strokeDashoffset: dashOffset,
-              opacity: isUrgent ? [1, 0.45, 1] : 1,
+              opacity: isUrgent && !votingOpen ? [1, 0.45, 1] : 1,
             }}
             transition={
-              isUrgent
+              isUrgent && !votingOpen
                 ? { opacity: { duration: 0.55, repeat: Infinity }, strokeDashoffset: { duration: 0.35 } }
                 : { strokeDashoffset: { duration: 0.35 } }
             }
@@ -537,13 +779,16 @@ export function LiveTimerHost({
         </svg>
         <motion.p
           className={`absolute font-mono text-5xl font-black tracking-tight tabular-nums ${
-            isUrgent || isDone ? "text-rose-400" : "text-white"
+            votingOpen
+              ? "text-sky-300"
+              : isUrgent || isDone
+                ? "text-rose-400"
+                : "text-white"
           }`}
-          initial={{ scale: 1 }}
-          animate={isUrgent ? { scale: [1, 1.06, 1] } : { scale: 1 }}
-          transition={isUrgent ? { duration: 0.55, repeat: Infinity } : undefined}
+          animate={isUrgent && !votingOpen ? { scale: [1, 1.06, 1] } : { scale: 1 }}
+          transition={isUrgent && !votingOpen ? { duration: 0.55, repeat: Infinity } : undefined}
         >
-          {formatTimerClock(remaining)}
+          {formatTimerClock(displayRemaining)}
         </motion.p>
       </div>
 
@@ -551,15 +796,8 @@ export function LiveTimerHost({
         <motion.div
           className="h-full rounded-full"
           style={{ backgroundColor: ringColor }}
-          animate={{
-            width: `${progress * 100}%`,
-            opacity: isUrgent ? [1, 0.5, 1] : 1,
-          }}
-          transition={
-            isUrgent
-              ? { opacity: { duration: 0.55, repeat: Infinity }, width: { duration: 0.3 } }
-              : { width: { duration: 0.3 } }
-          }
+          animate={{ width: `${displayProgress * 100}%` }}
+          transition={{ width: { duration: 0.3 } }}
         />
       </div>
 
@@ -583,7 +821,6 @@ export function LiveTimerHost({
         </button>
       </div>
 
-      {/* Live pitch projection hero */}
       <AnimatePresence>
         {stage ? (
           <motion.section
@@ -610,9 +847,54 @@ export function LiveTimerHost({
               />
             </div>
 
-            <p className="mb-4 rounded-xl bg-emerald-500/15 px-3 py-2 font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-emerald-200 ring-1 ring-emerald-400/40">
-              🎤 პრეზენტატორი: {stage.pitcherNickname}
-            </p>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <div className="min-w-0 flex-1 rounded-xl bg-emerald-500/15 px-3 py-2 ring-1 ring-emerald-400/40">
+                <p className="font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-emerald-200">
+                  🎤 პრეზენტატორი: {stage.pitcherNickname}
+                </p>
+                <p className="mt-0.5 text-xs text-emerald-100/80">
+                  {stage.pitcherRealName}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={rerollPitcher}
+                disabled={pickPending || votingOpen || running}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-slate-900 px-3 py-2.5 font-[family-name:var(--font-noto-georgian)] text-xs font-bold text-amber-200 ring-1 ring-amber-400/40 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Dices className="size-3.5" />
+                🎲 Re-roll Pitcher
+                <span className="hidden xl:inline">(ახალი პრეზენტატორი)</span>
+              </button>
+            </div>
+
+            <div className="mb-4 flex items-center justify-center gap-4 rounded-xl bg-slate-950/80 px-4 py-3 ring-1 ring-slate-700">
+              <div className="flex items-center gap-2 text-emerald-300">
+                <ThumbsUp className="size-5" />
+                <span className="font-mono text-2xl font-black tabular-nums">
+                  {likesCount}
+                </span>
+                <span className="font-[family-name:var(--font-noto-georgian)] text-xs font-bold">
+                  👍 Likes
+                </span>
+              </div>
+              <div className="h-8 w-px bg-slate-700" />
+              <div className="flex items-center gap-2 text-rose-300">
+                <ThumbsDown className="size-5" />
+                <span className="font-mono text-2xl font-black tabular-nums">
+                  {dislikesCount}
+                </span>
+                <span className="font-[family-name:var(--font-noto-georgian)] text-xs font-bold">
+                  👎 Dislikes
+                </span>
+              </div>
+            </div>
+
+            {votingOpen ? (
+              <p className="mb-3 text-center font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-sky-300">
+                🗳️ ხმის მიცემა ღიაა · {formatTimerClock(votingRemaining)}
+              </p>
+            ) : null}
 
             <div className="space-y-3">
               <div>

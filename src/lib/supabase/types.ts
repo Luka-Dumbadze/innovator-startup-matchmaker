@@ -21,18 +21,21 @@ export type Database = {
           date_label: string;
           is_active: boolean;
           created_at: string;
+          ended_at: string | null;
         };
         Insert: {
           id?: string;
           date_label: string;
           is_active?: boolean;
           created_at?: string;
+          ended_at?: string | null;
         };
         Update: {
           id?: string;
           date_label?: string;
           is_active?: boolean;
           created_at?: string;
+          ended_at?: string | null;
         };
         Relationships: [];
       };
@@ -137,6 +140,8 @@ export type Database = {
           one_sentence_solution: string;
           tools_integration: string;
           is_final_team_pitch: boolean;
+          likes_count: number;
+          dislikes_count: number;
           created_at: string;
         };
         Insert: {
@@ -150,6 +155,8 @@ export type Database = {
           one_sentence_solution: string;
           tools_integration: string;
           is_final_team_pitch?: boolean;
+          likes_count?: number;
+          dislikes_count?: number;
           created_at?: string;
         };
         Update: {
@@ -163,6 +170,8 @@ export type Database = {
           one_sentence_solution?: string;
           tools_integration?: string;
           is_final_team_pitch?: boolean;
+          likes_count?: number;
+          dislikes_count?: number;
           created_at?: string;
         };
         Relationships: [
@@ -175,6 +184,48 @@ export type Database = {
           },
           {
             foreignKeyName: "submitted_ideas_team_id_fkey";
+            columns: ["team_id"];
+            isOneToOne: false;
+            referencedRelation: "teams";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      pitch_votes: {
+        Row: {
+          id: string;
+          session_id: string;
+          team_id: string;
+          voter_player_uid: string;
+          vote_type: "like" | "dislike";
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          session_id: string;
+          team_id: string;
+          voter_player_uid: string;
+          vote_type: "like" | "dislike";
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          session_id?: string;
+          team_id?: string;
+          voter_player_uid?: string;
+          vote_type?: "like" | "dislike";
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "pitch_votes_session_id_fkey";
+            columns: ["session_id"];
+            isOneToOne: false;
+            referencedRelation: "daily_sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "pitch_votes_team_id_fkey";
             columns: ["team_id"];
             isOneToOne: false;
             referencedRelation: "teams";
@@ -205,6 +256,19 @@ export type Database = {
           max_capacity: number;
           current_count: number;
         };
+      };
+      cast_pitch_vote: {
+        Args: {
+          p_session_id: string;
+          p_team_id: string;
+          p_voter_uid: string;
+          p_vote_type: string;
+        };
+        Returns: {
+          likes_count: number;
+          dislikes_count: number;
+          vote_type: string;
+        } | null;
       };
     };
     Enums: {
