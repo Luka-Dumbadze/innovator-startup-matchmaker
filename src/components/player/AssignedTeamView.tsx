@@ -62,7 +62,7 @@ export function AssignedTeamView({
   onToast,
 }: AssignedTeamViewProps) {
   const isFull = team.current_count >= team.max_capacity;
-  const timer = useSessionTimerSync(session.id);
+  const timer = useSessionTimerSync(session.id, team.id);
   const guidance = PHASE_GUIDANCE[timer.mode];
   const bannerStyle = BANNER_STYLES[timer.mode];
 
@@ -116,14 +116,18 @@ export function AssignedTeamView({
     };
   }, []);
 
-  // Auto-submit when the 12-min team phase hits 00:00 / TIMER_EXPIRED,
-  // or when the host advances into the 1-minute pitch window.
+  // Auto-submit once when the team brainstorm (or pitch window) ends — not on every
+  // subsequent per-team pitch start.
   useEffect(() => {
     const timedOut =
       timer.expiredAlert || (timer.secondsRemaining === 0 && !timer.running);
-    const pitchPhase = timer.mode === "pitch";
-    if (!timedOut && !pitchPhase) return;
+    if (!timedOut) return;
     if (timer.mode === "solo_brainstorm") return;
+    // Pitch expiry alarms are team-targeted; only the presenting team (or a prior
+    // team-brainstorm expiry) should lock/submit.
+    if (timer.mode === "pitch" && timer.activePitchTeamId && timer.activePitchTeamId !== team.id) {
+      return;
+    }
     if (submitted || submittingRef.current) return;
 
     submittingRef.current = true;
@@ -155,6 +159,7 @@ export function AssignedTeamView({
     timer.secondsRemaining,
     timer.running,
     timer.mode,
+    timer.activePitchTeamId,
     submitted,
     session.id,
     team.id,

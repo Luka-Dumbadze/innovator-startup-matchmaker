@@ -1,25 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { motion, AnimatePresence } from "framer-motion";
 import { Radio, AlertTriangle, ExternalLink } from "lucide-react";
 
 import { useRealtimeHostSession } from "@/hooks/useRealtimeHostSession";
 import { QRCodeHostCard } from "@/components/host/QRCodeHostCard";
-import { TeamHostCard } from "@/components/host/TeamHostCard";
 import { LiveTimerHost } from "@/components/host/LiveTimerHost";
 
 export function HostDashboardSkeleton() {
   return (
     <div className="flex h-screen flex-col gap-4 overflow-hidden bg-slate-950 p-4 xl:p-6">
-      <div className="h-16 animate-pulse rounded-2xl bg-slate-800/80" />
-      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[22%_53%_25%]">
+      <div className="h-14 animate-pulse rounded-2xl bg-slate-800/80" />
+      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-2">
         <div className="animate-pulse rounded-3xl bg-slate-800/70" />
-        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="animate-pulse rounded-2xl bg-slate-800/60" />
-          ))}
-        </div>
         <div className="animate-pulse rounded-3xl bg-slate-800/70" />
       </div>
     </div>
@@ -37,7 +30,7 @@ function HostEmptyState({ error }: { error?: string | null }) {
           აქტიური სესია არ არის
         </h1>
         <p className="mt-2 max-w-md font-[family-name:var(--font-noto-georgian)] text-base text-slate-400">
-          ადმინ პანელში გაააქტიურეთ დღიური სესია, რათა ამ ეკრანზე გამოჩნდეს გუნდები და QR კოდი.
+          ადმინ პანელში გაააქტიურეთ დღიური სესია, რათა ამ ეკრანზე გამოჩნდეს QR კოდი და ტაიმერი.
         </p>
         {error ? (
           <p className="mt-3 inline-flex items-center gap-2 rounded-xl bg-rose-500/10 px-3 py-2 text-sm text-rose-300 ring-1 ring-rose-500/30">
@@ -58,15 +51,8 @@ function HostEmptyState({ error }: { error?: string | null }) {
 }
 
 export function HostDashboard() {
-  const {
-    session,
-    teams,
-    totalJoined,
-    totalCapacity,
-    loading,
-    error,
-    recentlyJoinedTeamIds,
-  } = useRealtimeHostSession();
+  const { session, teams, totalJoined, totalCapacity, loading, error } =
+    useRealtimeHostSession();
 
   if (loading) {
     return <HostDashboardSkeleton />;
@@ -88,56 +74,27 @@ export function HostDashboard() {
           <p className="text-xs font-bold tracking-[0.18em] text-teal-300 uppercase xl:text-sm">
             💡 STARTUP MATCHMAKER
           </p>
-          <h1 className="truncate font-[family-name:var(--font-noto-georgian)] text-2xl font-black tracking-tight text-white xl:text-4xl">
+          <h1 className="truncate font-[family-name:var(--font-noto-georgian)] text-2xl font-black tracking-tight text-white xl:text-3xl">
             ☀️ {session.date_label}
           </h1>
         </div>
 
-        <div className="flex items-center gap-3 xl:gap-5">
-          <span className="inline-flex items-center gap-2 rounded-full bg-rose-500/15 px-3 py-1.5 font-[family-name:var(--font-noto-georgian)] text-sm font-black tracking-wide text-rose-300 ring-1 ring-rose-400/50 xl:px-4 xl:text-base">
-            <span className="relative flex size-2.5">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-rose-400 opacity-75" />
-              <span className="relative inline-flex size-2.5 rounded-full bg-rose-500" />
-            </span>
-            🔴 პირდაპირ ეთერში
+        <span className="inline-flex items-center gap-2 rounded-full bg-rose-500/15 px-3 py-1.5 font-[family-name:var(--font-noto-georgian)] text-sm font-black tracking-wide text-rose-300 ring-1 ring-rose-400/50 xl:px-4 xl:text-base">
+          <span className="relative flex size-2.5">
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-rose-400 opacity-75" />
+            <span className="relative inline-flex size-2.5 rounded-full bg-rose-500" />
           </span>
-
-          <div className="rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-2 backdrop-blur-md xl:px-5">
-            <p className="flex items-center gap-2 font-[family-name:var(--font-noto-georgian)] font-mono text-xl font-black tabular-nums text-white xl:text-3xl">
-              <AnimatePresence mode="popLayout">
-                <motion.span
-                  key={totalJoined}
-                  initial={{ y: 8, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  exit={{ y: -8, opacity: 0 }}
-                  transition={{ duration: 0.25 }}
-                >
-                  👥 {totalJoined}
-                </motion.span>
-              </AnimatePresence>
-              <span className="text-slate-500">/ {totalCapacity || 40} მონაწილე</span>
-            </p>
-          </div>
-        </div>
+          🔴 პირდაპირ ეთერში
+        </span>
       </header>
 
-      <main className="relative z-10 grid min-h-0 flex-1 gap-4 p-4 xl:grid-cols-[22%_53%_25%] xl:gap-5 xl:p-6">
+      <main className="relative z-10 grid min-h-0 flex-1 gap-4 p-4 xl:grid-cols-2 xl:gap-6 xl:p-6">
         <section className="min-h-0">
-          <QRCodeHostCard />
-        </section>
-
-        <section className="grid min-h-0 grid-cols-2 content-stretch gap-3 overflow-auto xl:grid-cols-4 xl:gap-3.5">
-          {teams.map((team) => (
-            <TeamHostCard
-              key={team.id}
-              team={team}
-              justJoined={recentlyJoinedTeamIds.has(team.id)}
-            />
-          ))}
+          <QRCodeHostCard totalJoined={totalJoined} totalCapacity={totalCapacity || 40} />
         </section>
 
         <aside className="min-h-0">
-          <LiveTimerHost sessionId={session.id} className="h-full" />
+          <LiveTimerHost sessionId={session.id} teams={teams} className="h-full" />
         </aside>
       </main>
     </div>

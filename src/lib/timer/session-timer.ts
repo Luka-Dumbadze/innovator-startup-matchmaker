@@ -7,13 +7,18 @@ export type TimerBroadcastEvent =
   | "TIMER_STARTED"
   | "TIMER_PAUSED"
   | "TIMER_RESET"
-  | "TIMER_EXPIRED";
+  | "TIMER_EXPIRED"
+  | "PITCH_STARTED"
+  | "PITCH_EXPIRED";
 
 export type TimerStartedPayload = {
   mode: TimerMode;
   secondsRemaining: number;
   /** Epoch ms when the countdown hits zero (preferred for phone sync). */
   endsAt?: number;
+  /** When mode is pitch: the team currently on stage. */
+  activeTeamId?: string;
+  teamName?: string;
 };
 
 export type TimerPausedPayload = {
@@ -30,13 +35,28 @@ export type TimerResetPayload = {
 export type TimerExpiredPayload = {
   mode: TimerMode;
   secondsRemaining: 0;
+  /** When mode is pitch: only this team should alarm. */
+  targetTeamId?: string;
+};
+
+export type PitchStartedPayload = {
+  activeTeamId: string;
+  teamName: string;
+  secondsRemaining: number;
+  endsAt?: number;
+};
+
+export type PitchExpiredPayload = {
+  targetTeamId: string;
 };
 
 export type TimerBroadcastPayload =
   | TimerStartedPayload
   | TimerPausedPayload
   | TimerResetPayload
-  | TimerExpiredPayload;
+  | TimerExpiredPayload
+  | PitchStartedPayload
+  | PitchExpiredPayload;
 
 export const MODE_SECONDS: Record<TimerMode, number> = {
   solo_brainstorm: 2 * 60,

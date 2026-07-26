@@ -10,6 +10,8 @@ import {
   startExpiryAlarm,
   stopExpiryAlarm,
   triggerExpiryVibration,
+  type PitchExpiredPayload,
+  type PitchStartedPayload,
   type TimerExpiredPayload,
   type TimerMode,
   type TimerPausedPayload,
@@ -22,6 +24,8 @@ export type SyncedTimerState = {
   secondsRemaining: number;
   running: boolean;
   expiredAlert: boolean;
+  /** Team currently pitching (host selection); null outside pitch mode. */
+  activePitchTeamId: string | null;
   dismissExpiredAlert: () => void;
 };
 
@@ -33,22 +37,37 @@ function secondsUntil(endsAt: number): number {
  * Subscribes to host timer broadcasts on `session-timer-${sessionId}`
  * and mirrors a live mm:ss countdown locally for the student phone UI.
  *
- * Prefers host `endsAt` timestamps; falls back to local decrement when absent.
+ * Pitch expiry alarms only fire when `myTeamId` matches the host's target team.
  */
-export function useSessionTimerSync(sessionId: string | null): SyncedTimerState {
+export function useSessionTimerSync(
+  sessionId: string | null,
+  myTeamId: string | null = null
+): SyncedTimerState {
   const [mode, setMode] = useState<TimerMode>("solo_brainstorm");
   const [secondsRemaining, setSecondsRemaining] = useState(MODE_SECONDS.solo_brainstorm);
   const [running, setRunning] = useState(false);
   const [expiredAlert, setExpiredAlert] = useState(false);
+  const [activePitchTeamId, setActivePitchTeamId] = useState<string | null>(null);
+
   const intervalRef = useRef<number | null>(null);
   const vibrateRepeatRef = useRef<number | null>(null);
   const expiredLockRef = useRef(false);
   const modeRef = useRef<TimerMode>("solo_brainstorm");
   const endsAtRef = useRef<number | null>(null);
+  const activePitchTeamIdRef = useRef<string | null>(null);
+  const myTeamIdRef = useRef<string | null>(myTeamId);
 
   useEffect(() => {
     modeRef.current = mode;
   }, [mode]);
+
+  useEffect(() => {
+    activePitchTeamIdRef.current = activePitchTeamId;
+  }, [activePitchTeamId]);
+
+  useEffect(() => {
+    myTeamIdRef.current = myTeamId;
+  }, [myTeamId]);
 
   const clearLocalTick = useCallback(() => {
     if (intervalRef.current !== null) {
@@ -76,17 +95,37 @@ export function useSessionTimerSync(sessionId: string | null): SyncedTimerState 
     setExpiredAlert(false);
   }, [clearVibrateLoop]);
 
+  const shouldAlarmForPitch = useCallback((targetTeamId: string | null | undefined) => {
+    const mine = myTeamIdRef.current;
+    if (!mine) return false;
+    if (!targetTeamId) return false;
+    return targetTeamId === mine;
+  }, []);
+
   const triggerExpired = useCallback(
-    (expiredMode?: TimerMode) => {
+    (expiredMode?: TimerMode, targetTeamId?: string | null) => {
       if (expiredLockRef.current) return;
-      expiredLockRef.current = true;
+
+      const modeToUse = expiredMode ?? modeRef.current;
       endsAtRef.current = null;
+      setRunning(false);
+      setSecondsRemaining(0);
       if (expiredMode) {
         setMode(expiredMode);
         modeRef.current = expiredMode;
       }
-      setRunning(false);
-      setSecondsRemaining(0);
+
+      // Pitch alarms are team-targeted — everyone else stays silent.
+      if (modeToUse === "pitch") {
+        const target = targetTeamId ?? activePitchTeamIdRef.current;
+        if (!shouldAlarmForPitch(target)) {
+          expiredLockRef.current = true;
+          setExpiredAlert(false);
+          return;
+        }
+      }
+
+      expiredLockRef.current = true;
       setExpiredAlert(true);
       startExpiryAlarm();
       triggerExpiryVibration();
@@ -95,7 +134,7 @@ export function useSessionTimerSync(sessionId: string | null): SyncedTimerState 
         triggerExpiryVibration();
       }, 1600);
     },
-    [clearVibrateLoop]
+    [clearVibrateLoop, shouldAlarmForPitch]
   );
 
   useEffect(() => {
@@ -126,6 +165,36 @@ export function useSessionTimerSync(sessionId: string | null): SyncedTimerState 
         setExpiredAlert(false);
         stopExpiryAlarm();
         clearVibrateLoop();
+
+        if (nextMode === "pitch" && data.activeTeamId) {
+          setActivePitchTeamId(data.activeTeamId);
+          activePitchTeamIdRef.current = data.activeTeamId;
+        } else if (nextMode !== "pitch") {
+          setActivePitchTeamId(null);
+          activePitchTeamIdRef.current = null;
+        }
+      })
+      .on("broadcast", { event: "PITCH_STARTED" }, ({ payload }) => {
+        const data = payload as PitchStartedPayload;
+        if (!data?.activeTeamId) return;
+        setActivePitchTeamId(data.activeTeamId);
+        activePitchTeamIdRef.current = data.activeTeamId;
+        setMode("pitch");
+        modeRef.current = "pitch";
+        if (typeof data.secondsRemaining === "number") {
+          const secs = Math.max(0, data.secondsRemaining);
+          const endsAt =
+            typeof data.endsAt === "number" && data.endsAt > Date.now()
+              ? data.endsAt
+              : Date.now() + secs * 1000;
+          endsAtRef.current = secs > 0 ? endsAt : null;
+          setSecondsRemaining(secs > 0 ? secondsUntil(endsAt) : 0);
+          setRunning(secs > 0);
+        }
+        expiredLockRef.current = false;
+        setExpiredAlert(false);
+        stopExpiryAlarm();
+        clearVibrateLoop();
       })
       .on("broadcast", { event: "TIMER_PAUSED" }, ({ payload }) => {
         const data = payload as TimerPausedPayload;
@@ -152,11 +221,20 @@ export function useSessionTimerSync(sessionId: string | null): SyncedTimerState 
         setExpiredAlert(false);
         stopExpiryAlarm();
         clearVibrateLoop();
+        if (nextMode !== "pitch") {
+          setActivePitchTeamId(null);
+          activePitchTeamIdRef.current = null;
+        }
       })
       .on("broadcast", { event: "TIMER_EXPIRED" }, ({ payload }) => {
         const data = payload as Partial<TimerExpiredPayload> | undefined;
         const expiredMode = parseTimerMode(data?.mode ?? modeRef.current);
-        triggerExpired(expiredMode);
+        triggerExpired(expiredMode, data?.targetTeamId ?? activePitchTeamIdRef.current);
+      })
+      .on("broadcast", { event: "PITCH_EXPIRED" }, ({ payload }) => {
+        const data = payload as PitchExpiredPayload;
+        if (!data?.targetTeamId) return;
+        triggerExpired("pitch", data.targetTeamId);
       })
       .subscribe();
 
@@ -182,17 +260,20 @@ export function useSessionTimerSync(sessionId: string | null): SyncedTimerState 
         if (left <= 0) {
           clearLocalTick();
           setRunning(false);
-          queueMicrotask(() => triggerExpired(modeRef.current));
+          queueMicrotask(() =>
+            triggerExpired(modeRef.current, activePitchTeamIdRef.current)
+          );
         }
         return;
       }
 
-      // Fallback when host did not send endsAt
       setSecondsRemaining((prev) => {
         if (prev <= 1) {
           clearLocalTick();
           setRunning(false);
-          queueMicrotask(() => triggerExpired(modeRef.current));
+          queueMicrotask(() =>
+            triggerExpired(modeRef.current, activePitchTeamIdRef.current)
+          );
           return 0;
         }
         return prev - 1;
@@ -214,6 +295,7 @@ export function useSessionTimerSync(sessionId: string | null): SyncedTimerState 
     secondsRemaining,
     running,
     expiredAlert,
+    activePitchTeamId,
     dismissExpiredAlert,
   };
 }
