@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Pause, Play, RotateCcw, Timer, Zap } from "lucide-react";
+import { Pause, RotateCcw, Timer } from "lucide-react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
@@ -46,10 +46,10 @@ function playChime(): void {
   }
 }
 
-const MODE_BUTTONS: { mode: TimerMode; label: string }[] = [
-  { mode: "solo_brainstorm", label: "🤫 2-წთ ინდივიდუალური" },
-  { mode: "team_brainstorm", label: "🤝 10-წთ გუნდური" },
-  { mode: "pitch", label: "🎤 1-წთ პიჩინგი" },
+const START_BUTTONS: { mode: TimerMode; label: string }[] = [
+  { mode: "solo_brainstorm", label: "▶️ 2-წთ ინდივიდუალური დაწყება" },
+  { mode: "team_brainstorm", label: "▶️ 10-წთ გუნდური დაწყება" },
+  { mode: "pitch", label: "▶️ 1-წთ პიჩის დაწყება" },
 ];
 
 const MODE_LABELS_KA: Record<TimerMode, string> = {
@@ -68,17 +68,15 @@ export function LiveTimerHost({ sessionId, className = "" }: LiveTimerHostProps)
   const [remaining, setRemaining] = useState(MODE_SECONDS.solo_brainstorm);
   const [running, setRunning] = useState(false);
   const [channelReady, setChannelReady] = useState(false);
-  const [flowActive, setFlowActive] = useState(false);
   const chimedRef = useRef(false);
   const intervalRef = useRef<number | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const modeRef = useRef(mode);
-  const flowActiveRef = useRef(false);
+  const endsAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     modeRef.current = mode;
-    flowActiveRef.current = flowActive;
-  }, [mode, flowActive]);
+  }, [mode]);
 
   const duration = MODE_SECONDS[mode];
   const progress = remaining / duration;
@@ -119,6 +117,8 @@ export function LiveTimerHost({ sessionId, className = "" }: LiveTimerHostProps)
 
   const startMode = useCallback((next: TimerMode, seconds?: number) => {
     const secs = seconds ?? MODE_SECONDS[next];
+    const endsAt = Date.now() + secs * 1000;
+    endsAtRef.current = endsAt;
     setMode(next);
     setRemaining(secs);
     chimedRef.current = false;
@@ -126,6 +126,7 @@ export function LiveTimerHost({ sessionId, className = "" }: LiveTimerHostProps)
     void broadcastTimerEvent(channelRef.current, "TIMER_STARTED", {
       mode: next,
       secondsRemaining: secs,
+      endsAt,
     });
   }, []);
 
@@ -136,6 +137,17 @@ export function LiveTimerHost({ sessionId, className = "" }: LiveTimerHostProps)
     }
 
     intervalRef.current = window.setInterval(() => {
+      const endsAt = endsAtRef.current;
+      if (endsAt != null) {
+        const left = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+        setRemaining(left);
+        if (left <= 0) {
+          clearTick();
+          setRunning(false);
+        }
+        return;
+      }
+
       setRemaining((prev) => {
         if (prev <= 1) {
           clearTick();
@@ -144,56 +156,29 @@ export function LiveTimerHost({ sessionId, className = "" }: LiveTimerHostProps)
         }
         return prev - 1;
       });
-    }, 1000);
+    }, 250);
 
     return clearTick;
   }, [running]);
 
   useEffect(() => {
-    if (remaining !== 0 || chimedRef.current) {
+    if (remaining !== 0 || chimedRef.current || running) {
       if (remaining > 0) chimedRef.current = false;
       return;
     }
 
     chimedRef.current = true;
+    endsAtRef.current = null;
     const expiredMode = modeRef.current;
     playChime();
     void broadcastTimerEvent(channelRef.current, "TIMER_EXPIRED", {
       mode: expiredMode,
       secondsRemaining: 0,
     });
-
-    // Full 12-min flow: Solo (2m) → Team (10m)
-    if (expiredMode === "solo_brainstorm" && flowActiveRef.current) {
-      window.setTimeout(() => {
-        startMode("team_brainstorm");
-      }, 400);
-      return;
-    }
-
-    if (expiredMode === "team_brainstorm" && flowActiveRef.current) {
-      setFlowActive(false);
-      flowActiveRef.current = false;
-    }
-  }, [remaining, startMode]);
-
-  const switchMode = useCallback((next: TimerMode) => {
-    setFlowActive(false);
-    flowActiveRef.current = false;
-    setMode(next);
-    setRunning(false);
-    const nextSeconds = MODE_SECONDS[next];
-    setRemaining(nextSeconds);
-    chimedRef.current = false;
-    void broadcastTimerEvent(channelRef.current, "TIMER_RESET", {
-      mode: next,
-      secondsRemaining: nextSeconds,
-    });
-  }, []);
+  }, [remaining, running]);
 
   const reset = () => {
-    setFlowActive(false);
-    flowActiveRef.current = false;
+    endsAtRef.current = null;
     setRunning(false);
     setRemaining(duration);
     chimedRef.current = false;
@@ -203,32 +188,14 @@ export function LiveTimerHost({ sessionId, className = "" }: LiveTimerHostProps)
     });
   };
 
-  const toggleRun = () => {
-    if (remaining === 0) {
-      startMode(mode, duration);
-      return;
-    }
-
-    if (running) {
-      setRunning(false);
-      void broadcastTimerEvent(channelRef.current, "TIMER_PAUSED", {
-        mode,
-        secondsRemaining: remaining,
-      });
-      return;
-    }
-
-    setRunning(true);
-    void broadcastTimerEvent(channelRef.current, "TIMER_STARTED", {
+  const pause = () => {
+    if (!running) return;
+    endsAtRef.current = null;
+    setRunning(false);
+    void broadcastTimerEvent(channelRef.current, "TIMER_PAUSED", {
       mode,
       secondsRemaining: remaining,
     });
-  };
-
-  const startFullFlow = () => {
-    setFlowActive(true);
-    flowActiveRef.current = true;
-    startMode("solo_brainstorm");
   };
 
   const size = 148;
@@ -252,28 +219,31 @@ export function LiveTimerHost({ sessionId, className = "" }: LiveTimerHostProps)
         />
       </div>
 
-      <div className="mb-3 flex flex-col gap-1 rounded-xl bg-slate-950/80 p-1 ring-1 ring-slate-700">
-        {MODE_BUTTONS.map(({ mode: key, label }) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => switchMode(key)}
-            className={`rounded-lg px-2 py-2 text-left font-[family-name:var(--font-noto-georgian)] text-xs font-bold transition xl:text-sm ${
-              mode === key
-                ? "bg-teal-500 text-slate-950"
-                : "text-slate-400 hover:bg-slate-800 hover:text-white"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="mb-3 flex flex-col gap-1.5 rounded-xl bg-slate-950/80 p-1.5 ring-1 ring-slate-700">
+        {START_BUTTONS.map(({ mode: key, label }) => {
+          const active = mode === key && (running || remaining < MODE_SECONDS[key]);
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => startMode(key)}
+              className={`rounded-lg px-2.5 py-2.5 text-left font-[family-name:var(--font-noto-georgian)] text-xs font-bold transition xl:text-sm ${
+                active
+                  ? "bg-teal-500 text-slate-950 ring-2 ring-teal-300/60"
+                  : "bg-slate-900 text-slate-200 hover:bg-slate-800 hover:text-white"
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
       </div>
 
       <p className="mb-1 text-center font-[family-name:var(--font-noto-georgian)] text-sm font-semibold text-slate-400">
         {MODE_LABELS_KA[mode]}
-        {flowActive ? (
-          <span className="ml-2 rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold tracking-wide text-amber-200">
-            სრული სესია
+        {running ? (
+          <span className="ml-2 rounded-full bg-rose-500/20 px-2 py-0.5 text-[10px] font-bold tracking-wide text-rose-200">
+            პირდაპირ
           </span>
         ) : null}
       </p>
@@ -338,33 +308,24 @@ export function LiveTimerHost({ sessionId, className = "" }: LiveTimerHostProps)
         />
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-center gap-2">
         <button
           type="button"
-          onClick={startFullFlow}
-          className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-slate-950 transition hover:bg-amber-400"
+          onClick={pause}
+          disabled={!running}
+          className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-slate-800 px-4 py-2.5 font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-white ring-1 ring-slate-600 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          <Zap className="size-4" />
-          ⚡ 12-წუთიანი სრული სესია
+          <Pause className="size-4" />
+          ⏸️ პაუზა
         </button>
-        <div className="flex items-center justify-center gap-2">
-          <button
-            type="button"
-            onClick={toggleRun}
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-500 px-4 py-2.5 font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-slate-950 transition hover:bg-teal-400"
-          >
-            {running ? <Pause className="size-4" /> : <Play className="size-4" />}
-            {running ? "⏸️ პაუზა" : "▶️ დაწყება"}
-          </button>
-          <button
-            type="button"
-            onClick={reset}
-            className="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2.5 font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-white ring-1 ring-slate-600 transition hover:bg-slate-700"
-          >
-            <RotateCcw className="size-4" />
-            🔄 გადატვირთვა
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={reset}
+          className="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2.5 font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-white ring-1 ring-slate-600 transition hover:bg-slate-700"
+        >
+          <RotateCcw className="size-4" />
+          🔄 გადატვირთვა
+        </button>
       </div>
     </div>
   );

@@ -12,6 +12,8 @@ export type TimerBroadcastEvent =
 export type TimerStartedPayload = {
   mode: TimerMode;
   secondsRemaining: number;
+  /** Epoch ms when the countdown hits zero (preferred for phone sync). */
+  endsAt?: number;
 };
 
 export type TimerPausedPayload = {
@@ -22,6 +24,7 @@ export type TimerPausedPayload = {
 export type TimerResetPayload = {
   mode: TimerMode;
   secondsRemaining: number;
+  endsAt?: number;
 };
 
 export type TimerExpiredPayload = {
@@ -79,6 +82,15 @@ export const PHASE_GUIDANCE: Record<TimerMode, PhaseGuidance> = {
 
 export const SOLO_TO_TEAM_NOTICE =
   "🔔 2 წუთი გავიდა! ახლა იპოვეთ თქვენი გუნდის წევრები!";
+
+/** Full-alarm modal copy when any phase hits 00:00. */
+export const EXPIRY_INSTRUCTIONS: Record<TimerMode, string> = {
+  solo_brainstorm:
+    "🤫 2 წუთი ამოიწურა! ინდივიდუალური ფაზა დასრულდა. ახლა იპოვეთ თქვენი გუნდის წევრები დარბაზში და დაელოდეთ მენტორს გუნდური რაუნდის დასაწყებად.",
+  team_brainstorm:
+    "🤝 10 წუთი ამოიწურა! გუნდური ბრეინშტორმი დასრულდა. იდეა ავტომატურად შეინახა. მოემზადეთ პიჩისთვის!",
+  pitch: "🎤 1 წუთი ამოიწურა! პიჩინგი დასრულდა.",
+};
 
 export function sessionTimerChannelName(sessionId: string): string {
   return `session-timer-${sessionId}`;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  EXPIRY_INSTRUCTIONS,
   formatTimerClock,
   MODE_SECONDS,
   PHASE_GUIDANCE,
@@ -33,5 +34,11 @@ describe("session timer helpers", () => {
     expect(PHASE_GUIDANCE.solo_brainstorm.title).toContain("ინდივიდუალური");
     expect(PHASE_GUIDANCE.team_brainstorm.title).toContain("გუნდური");
     expect(PHASE_GUIDANCE.pitch.title).toContain("პიჩინგის");
+  });
+
+  it("exposes mode-specific expiry instructions", () => {
+    expect(EXPIRY_INSTRUCTIONS.solo_brainstorm).toContain("ინდივიდუალური");
+    expect(EXPIRY_INSTRUCTIONS.team_brainstorm).toContain("გუნდური");
+    expect(EXPIRY_INSTRUCTIONS.pitch).toContain("პიჩინგი");
   });
 });

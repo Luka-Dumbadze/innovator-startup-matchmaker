@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Timer, Users, X } from "lucide-react";
+import { Timer, Users } from "lucide-react";
 
 import type { DailySession, IdeaNotes, PlayerProfile, Team } from "@/types/game";
 import { ElevatorPitchView } from "@/components/player/ElevatorPitchView";
@@ -165,8 +165,10 @@ export function AssignedTeamView({
   ]);
 
   const timerUrgent = timer.secondsRemaining > 0 && timer.secondsRemaining <= 10;
-  const timerActive =
-    timer.running || timer.secondsRemaining < MODE_SECONDS[timer.mode];
+  const timerVisible =
+    timer.running ||
+    timer.expiredAlert ||
+    timer.secondsRemaining < MODE_SECONDS[timer.mode];
   const hubActive = timer.mode === "team_brainstorm" && !submitted;
 
   return (
@@ -184,29 +186,31 @@ export function AssignedTeamView({
           Playing as <span className="font-semibold text-teal-300">{profile.nickname}</span>
         </p>
 
-        {(timer.running || timerActive || timer.expiredAlert) && (
+        {timerVisible ? (
           <motion.div
             layout
-            className={`mt-3 inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 font-mono text-sm font-black tabular-nums ring-1 ${
+            className={`mt-4 inline-flex min-w-[11rem] flex-col items-center gap-0.5 rounded-2xl px-5 py-3 font-mono ring-2 ${
               timer.expiredAlert || timer.secondsRemaining === 0
-                ? "bg-rose-500/20 text-rose-300 ring-rose-400/50"
+                ? "bg-rose-500/25 text-rose-200 ring-rose-400/60"
                 : timerUrgent
-                  ? "bg-amber-500/20 text-amber-200 ring-amber-400/40"
-                  : "bg-slate-800 text-teal-200 ring-slate-600"
+                  ? "bg-amber-500/25 text-amber-100 ring-amber-400/50"
+                  : "bg-slate-900 text-teal-200 ring-teal-500/40"
             }`}
           >
-            <Timer className="size-3.5" />
-            {formatTimerClock(timer.secondsRemaining)}
-            <span className="text-[10px] font-bold tracking-wide uppercase opacity-80">
+            <span className="flex items-center gap-2 text-3xl font-black tabular-nums tracking-tight">
+              <Timer className="size-5" />
+              {formatTimerClock(timer.secondsRemaining)}
+            </span>
+            <span className="text-[10px] font-bold tracking-[0.14em] uppercase opacity-80">
               {MODE_SHORT_LABELS[timer.mode]}
-              {timer.running ? " · LIVE" : ""}
+              {timer.running ? " · LIVE" : timer.expiredAlert ? " · ENDED" : ""}
             </span>
           </motion.div>
-        )}
+        ) : null}
       </motion.header>
 
       <AnimatePresence mode="wait">
-        {(timer.running || timerActive) && !submitted && (
+        {(timer.running || timerVisible) && !submitted && !timer.expiredAlert ? (
           <motion.div
             key={timer.mode}
             initial={{ opacity: 0, y: -8, scale: 0.98 }}
@@ -225,29 +229,6 @@ export function AssignedTeamView({
             >
               {guidance.instruction}
             </p>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {timer.phaseTransitionNotice ? (
-          <motion.div
-            initial={{ opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            className="flex items-start gap-2 rounded-2xl border border-amber-400/50 bg-amber-500/20 px-3.5 py-3 text-left"
-          >
-            <p className="flex-1 font-[family-name:var(--font-noto-georgian)] text-sm font-bold leading-snug text-amber-50">
-              {timer.phaseTransitionNotice}
-            </p>
-            <button
-              type="button"
-              onClick={timer.clearPhaseTransitionNotice}
-              className="rounded-md p-0.5 text-amber-200/80"
-              aria-label="Dismiss"
-            >
-              <X className="size-4" />
-            </button>
           </motion.div>
         ) : null}
       </AnimatePresence>
@@ -367,7 +348,8 @@ export function AssignedTeamView({
       )}
 
       <TimerExpiredModal
-        open={timer.expiredAlert && !submitted}
+        open={timer.expiredAlert}
+        mode={timer.mode}
         onDismiss={timer.dismissExpiredAlert}
       />
     </div>

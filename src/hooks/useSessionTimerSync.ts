@@ -5,14 +5,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import {
   MODE_SECONDS,
-  SOLO_TO_TEAM_NOTICE,
   parseTimerMode,
-  playPhaseTransitionChime,
   sessionTimerChannelName,
   startExpiryAlarm,
   stopExpiryAlarm,
   triggerExpiryVibration,
-  triggerPhaseTransitionVibration,
   type TimerExpiredPayload,
   type TimerMode,
   type TimerPausedPayload,
@@ -25,27 +22,29 @@ export type SyncedTimerState = {
   secondsRemaining: number;
   running: boolean;
   expiredAlert: boolean;
-  /** Soft Solo → Team handoff message (cleared after a few seconds). */
-  phaseTransitionNotice: string | null;
   dismissExpiredAlert: () => void;
-  clearPhaseTransitionNotice: () => void;
 };
+
+function secondsUntil(endsAt: number): number {
+  return Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+}
 
 /**
  * Subscribes to host timer broadcasts on `session-timer-${sessionId}`
- * and mirrors countdown locally for the student phone UI.
+ * and mirrors a live mm:ss countdown locally for the student phone UI.
+ *
+ * Prefers host `endsAt` timestamps; falls back to local decrement when absent.
  */
 export function useSessionTimerSync(sessionId: string | null): SyncedTimerState {
   const [mode, setMode] = useState<TimerMode>("solo_brainstorm");
   const [secondsRemaining, setSecondsRemaining] = useState(MODE_SECONDS.solo_brainstorm);
   const [running, setRunning] = useState(false);
   const [expiredAlert, setExpiredAlert] = useState(false);
-  const [phaseTransitionNotice, setPhaseTransitionNotice] = useState<string | null>(null);
   const intervalRef = useRef<number | null>(null);
   const vibrateRepeatRef = useRef<number | null>(null);
   const expiredLockRef = useRef(false);
   const modeRef = useRef<TimerMode>("solo_brainstorm");
-  const noticeTimerRef = useRef<number | null>(null);
+  const endsAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -65,27 +64,6 @@ export function useSessionTimerSync(sessionId: string | null): SyncedTimerState 
     }
   }, []);
 
-  const clearPhaseTransitionNotice = useCallback(() => {
-    if (noticeTimerRef.current !== null) {
-      window.clearTimeout(noticeTimerRef.current);
-      noticeTimerRef.current = null;
-    }
-    setPhaseTransitionNotice(null);
-  }, []);
-
-  const showSoloToTeamTransition = useCallback(() => {
-    playPhaseTransitionChime();
-    triggerPhaseTransitionVibration();
-    setPhaseTransitionNotice(SOLO_TO_TEAM_NOTICE);
-    if (noticeTimerRef.current !== null) {
-      window.clearTimeout(noticeTimerRef.current);
-    }
-    noticeTimerRef.current = window.setTimeout(() => {
-      setPhaseTransitionNotice(null);
-      noticeTimerRef.current = null;
-    }, 8000);
-  }, []);
-
   const dismissExpiredAlert = useCallback(() => {
     stopExpiryAlarm();
     clearVibrateLoop();
@@ -98,19 +76,27 @@ export function useSessionTimerSync(sessionId: string | null): SyncedTimerState 
     setExpiredAlert(false);
   }, [clearVibrateLoop]);
 
-  const triggerExpired = useCallback(() => {
-    if (expiredLockRef.current) return;
-    expiredLockRef.current = true;
-    setRunning(false);
-    setSecondsRemaining(0);
-    setExpiredAlert(true);
-    startExpiryAlarm();
-    triggerExpiryVibration();
-    clearVibrateLoop();
-    vibrateRepeatRef.current = window.setInterval(() => {
+  const triggerExpired = useCallback(
+    (expiredMode?: TimerMode) => {
+      if (expiredLockRef.current) return;
+      expiredLockRef.current = true;
+      endsAtRef.current = null;
+      if (expiredMode) {
+        setMode(expiredMode);
+        modeRef.current = expiredMode;
+      }
+      setRunning(false);
+      setSecondsRemaining(0);
+      setExpiredAlert(true);
+      startExpiryAlarm();
       triggerExpiryVibration();
-    }, 1600);
-  }, [clearVibrateLoop]);
+      clearVibrateLoop();
+      vibrateRepeatRef.current = window.setInterval(() => {
+        triggerExpiryVibration();
+      }, 1600);
+    },
+    [clearVibrateLoop]
+  );
 
   useEffect(() => {
     if (!sessionId) return;
@@ -125,16 +111,18 @@ export function useSessionTimerSync(sessionId: string | null): SyncedTimerState 
         const data = payload as TimerStartedPayload;
         if (!data || typeof data.secondsRemaining !== "number") return;
         const nextMode = parseTimerMode(data.mode);
-        const prevMode = modeRef.current;
-
-        if (prevMode === "solo_brainstorm" && nextMode === "team_brainstorm") {
-          showSoloToTeamTransition();
-        }
+        const secs = Math.max(0, data.secondsRemaining);
+        const endsAt =
+          typeof data.endsAt === "number" && data.endsAt > Date.now()
+            ? data.endsAt
+            : Date.now() + secs * 1000;
 
         expiredLockRef.current = false;
+        endsAtRef.current = secs > 0 ? endsAt : null;
         setMode(nextMode);
-        setSecondsRemaining(Math.max(0, data.secondsRemaining));
-        setRunning(data.secondsRemaining > 0);
+        modeRef.current = nextMode;
+        setSecondsRemaining(secs > 0 ? secondsUntil(endsAt) : 0);
+        setRunning(secs > 0);
         setExpiredAlert(false);
         stopExpiryAlarm();
         clearVibrateLoop();
@@ -142,7 +130,12 @@ export function useSessionTimerSync(sessionId: string | null): SyncedTimerState 
       .on("broadcast", { event: "TIMER_PAUSED" }, ({ payload }) => {
         const data = payload as TimerPausedPayload;
         if (!data || typeof data.secondsRemaining !== "number") return;
-        if (data.mode) setMode(parseTimerMode(data.mode));
+        endsAtRef.current = null;
+        if (data.mode) {
+          const nextMode = parseTimerMode(data.mode);
+          setMode(nextMode);
+          modeRef.current = nextMode;
+        }
         setSecondsRemaining(Math.max(0, data.secondsRemaining));
         setRunning(false);
       })
@@ -150,46 +143,30 @@ export function useSessionTimerSync(sessionId: string | null): SyncedTimerState 
         const data = payload as TimerResetPayload;
         if (!data || typeof data.secondsRemaining !== "number") return;
         expiredLockRef.current = false;
-        setMode(parseTimerMode(data.mode));
+        endsAtRef.current = null;
+        const nextMode = parseTimerMode(data.mode);
+        setMode(nextMode);
+        modeRef.current = nextMode;
         setSecondsRemaining(Math.max(0, data.secondsRemaining));
         setRunning(false);
         setExpiredAlert(false);
         stopExpiryAlarm();
         clearVibrateLoop();
-        clearPhaseTransitionNotice();
       })
       .on("broadcast", { event: "TIMER_EXPIRED" }, ({ payload }) => {
         const data = payload as Partial<TimerExpiredPayload> | undefined;
         const expiredMode = parseTimerMode(data?.mode ?? modeRef.current);
-
-        // Solo end during Full Flow → soft handoff (team start follows), not full alarm.
-        if (expiredMode === "solo_brainstorm") {
-          setRunning(false);
-          setSecondsRemaining(0);
-          showSoloToTeamTransition();
-          return;
-        }
-
-        setMode(expiredMode);
-        triggerExpired();
+        triggerExpired(expiredMode);
       })
       .subscribe();
 
     return () => {
       clearLocalTick();
       clearVibrateLoop();
-      clearPhaseTransitionNotice();
       stopExpiryAlarm();
       void supabase.removeChannel(channel);
     };
-  }, [
-    sessionId,
-    clearLocalTick,
-    clearVibrateLoop,
-    clearPhaseTransitionNotice,
-    triggerExpired,
-    showSoloToTeamTransition,
-  ]);
+  }, [sessionId, clearLocalTick, clearVibrateLoop, triggerExpired]);
 
   useEffect(() => {
     if (!running) {
@@ -198,42 +175,45 @@ export function useSessionTimerSync(sessionId: string | null): SyncedTimerState 
     }
 
     intervalRef.current = window.setInterval(() => {
+      const endsAt = endsAtRef.current;
+      if (endsAt != null) {
+        const left = secondsUntil(endsAt);
+        setSecondsRemaining(left);
+        if (left <= 0) {
+          clearLocalTick();
+          setRunning(false);
+          queueMicrotask(() => triggerExpired(modeRef.current));
+        }
+        return;
+      }
+
+      // Fallback when host did not send endsAt
       setSecondsRemaining((prev) => {
         if (prev <= 1) {
           clearLocalTick();
           setRunning(false);
-          const currentMode = modeRef.current;
-          queueMicrotask(() => {
-            if (currentMode === "solo_brainstorm") {
-              showSoloToTeamTransition();
-              return;
-            }
-            triggerExpired();
-          });
+          queueMicrotask(() => triggerExpired(modeRef.current));
           return 0;
         }
         return prev - 1;
       });
-    }, 1000);
+    }, 250);
 
     return clearLocalTick;
-  }, [running, clearLocalTick, triggerExpired, showSoloToTeamTransition]);
+  }, [running, clearLocalTick, triggerExpired]);
 
   useEffect(() => {
     return () => {
       stopExpiryAlarm();
       clearVibrateLoop();
-      clearPhaseTransitionNotice();
     };
-  }, [clearVibrateLoop, clearPhaseTransitionNotice]);
+  }, [clearVibrateLoop]);
 
   return {
     mode,
     secondsRemaining,
     running,
     expiredAlert,
-    phaseTransitionNotice,
     dismissExpiredAlert,
-    clearPhaseTransitionNotice,
   };
 }
