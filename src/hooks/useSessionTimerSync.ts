@@ -11,6 +11,7 @@ import {
   stopExpiryAlarm,
   triggerExpiryVibration,
   type PitchExpiredPayload,
+  type PitchSelectedPayload,
   type PitchStartedPayload,
   type TimerExpiredPayload,
   type TimerMode,
@@ -19,6 +20,23 @@ import {
   type TimerStartedPayload,
 } from "@/lib/timer/session-timer";
 
+export type PitchSelectionState = {
+  teamId: string;
+  teamName: string;
+  teamColor: string | null;
+  selectedPitcherUid: string;
+  selectedPitcherNickname: string;
+  startupName: string;
+  solution: string;
+  tools: string;
+  toolWords: string[];
+  nextUpTeamName: string | null;
+  nextUpTeamColor: string | null;
+  progressText: string;
+  pitchedCount: number;
+  totalTeams: number;
+};
+
 export type SyncedTimerState = {
   mode: TimerMode;
   secondsRemaining: number;
@@ -26,11 +44,34 @@ export type SyncedTimerState = {
   expiredAlert: boolean;
   /** Team currently pitching (host selection); null outside pitch mode. */
   activePitchTeamId: string | null;
+  /** Latest host random team + pitcher selection broadcast. */
+  pitchSelection: PitchSelectionState | null;
   dismissExpiredAlert: () => void;
+  dismissPitchSelection: () => void;
 };
 
 function secondsUntil(endsAt: number): number {
   return Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+}
+
+function parsePitchSelection(data: PitchSelectedPayload): PitchSelectionState | null {
+  if (!data?.teamId || !data.selectedPitcherUid) return null;
+  return {
+    teamId: data.teamId,
+    teamName: data.teamName ?? "",
+    teamColor: data.teamColor ?? null,
+    selectedPitcherUid: data.selectedPitcherUid,
+    selectedPitcherNickname: data.selectedPitcherNickname ?? "Pitcher",
+    startupName: data.startupName ?? "Untitled Startup",
+    solution: data.solution ?? "—",
+    tools: data.tools ?? "—",
+    toolWords: Array.isArray(data.toolWords) ? data.toolWords : [],
+    nextUpTeamName: data.nextUpTeamName ?? null,
+    nextUpTeamColor: data.nextUpTeamColor ?? null,
+    progressText: data.progressText ?? "",
+    pitchedCount: typeof data.pitchedCount === "number" ? data.pitchedCount : 0,
+    totalTeams: typeof data.totalTeams === "number" ? data.totalTeams : 0,
+  };
 }
 
 /**
@@ -48,6 +89,7 @@ export function useSessionTimerSync(
   const [running, setRunning] = useState(false);
   const [expiredAlert, setExpiredAlert] = useState(false);
   const [activePitchTeamId, setActivePitchTeamId] = useState<string | null>(null);
+  const [pitchSelection, setPitchSelection] = useState<PitchSelectionState | null>(null);
 
   const intervalRef = useRef<number | null>(null);
   const vibrateRepeatRef = useRef<number | null>(null);
@@ -94,6 +136,10 @@ export function useSessionTimerSync(
     }
     setExpiredAlert(false);
   }, [clearVibrateLoop]);
+
+  const dismissPitchSelection = useCallback(() => {
+    setPitchSelection(null);
+  }, []);
 
   const shouldAlarmForPitch = useCallback((targetTeamId: string | null | undefined) => {
     const mine = myTeamIdRef.current;
@@ -174,6 +220,21 @@ export function useSessionTimerSync(
           activePitchTeamIdRef.current = null;
         }
       })
+      .on("broadcast", { event: "PITCH_SELECTED" }, ({ payload }) => {
+        const data = payload as PitchSelectedPayload;
+        const parsed = parsePitchSelection(data);
+        if (!parsed) return;
+        setPitchSelection(parsed);
+        setActivePitchTeamId(parsed.teamId);
+        activePitchTeamIdRef.current = parsed.teamId;
+        try {
+          if (myTeamIdRef.current === parsed.teamId) {
+            navigator.vibrate?.([120, 60, 120, 60, 200]);
+          }
+        } catch {
+          // ignore
+        }
+      })
       .on("broadcast", { event: "PITCH_STARTED" }, ({ payload }) => {
         const data = payload as PitchStartedPayload;
         if (!data?.activeTeamId) return;
@@ -190,6 +251,20 @@ export function useSessionTimerSync(
           endsAtRef.current = secs > 0 ? endsAt : null;
           setSecondsRemaining(secs > 0 ? secondsUntil(endsAt) : 0);
           setRunning(secs > 0);
+        }
+        // Merge pitcher identity into existing selection when host starts the clock.
+        if (data.selectedPitcherUid) {
+          setPitchSelection((prev) => {
+            if (prev && prev.teamId === data.activeTeamId) {
+              return {
+                ...prev,
+                selectedPitcherUid: data.selectedPitcherUid!,
+                selectedPitcherNickname:
+                  data.selectedPitcherNickname ?? prev.selectedPitcherNickname,
+              };
+            }
+            return prev;
+          });
         }
         expiredLockRef.current = false;
         setExpiredAlert(false);
@@ -296,6 +371,8 @@ export function useSessionTimerSync(
     running,
     expiredAlert,
     activePitchTeamId,
+    pitchSelection,
     dismissExpiredAlert,
+    dismissPitchSelection,
   };
 }

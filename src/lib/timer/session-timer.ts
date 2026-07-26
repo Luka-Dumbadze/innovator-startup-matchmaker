@@ -9,7 +9,8 @@ export type TimerBroadcastEvent =
   | "TIMER_RESET"
   | "TIMER_EXPIRED"
   | "PITCH_STARTED"
-  | "PITCH_EXPIRED";
+  | "PITCH_EXPIRED"
+  | "PITCH_SELECTED";
 
 export type TimerStartedPayload = {
   mode: TimerMode;
@@ -19,6 +20,8 @@ export type TimerStartedPayload = {
   /** When mode is pitch: the team currently on stage. */
   activeTeamId?: string;
   teamName?: string;
+  selectedPitcherUid?: string;
+  selectedPitcherNickname?: string;
 };
 
 export type TimerPausedPayload = {
@@ -44,10 +47,30 @@ export type PitchStartedPayload = {
   teamName: string;
   secondsRemaining: number;
   endsAt?: number;
+  selectedPitcherUid?: string;
+  selectedPitcherNickname?: string;
 };
 
 export type PitchExpiredPayload = {
   targetTeamId: string;
+};
+
+/** Host randomly selected the next team + pitcher for stage. */
+export type PitchSelectedPayload = {
+  teamId: string;
+  teamName: string;
+  teamColor?: string;
+  selectedPitcherUid: string;
+  selectedPitcherNickname: string;
+  startupName: string;
+  solution: string;
+  tools: string;
+  toolWords?: string[];
+  nextUpTeamName: string | null;
+  nextUpTeamColor?: string | null;
+  progressText: string;
+  pitchedCount: number;
+  totalTeams: number;
 };
 
 export type TimerBroadcastPayload =
@@ -56,7 +79,8 @@ export type TimerBroadcastPayload =
   | TimerResetPayload
   | TimerExpiredPayload
   | PitchStartedPayload
-  | PitchExpiredPayload;
+  | PitchExpiredPayload
+  | PitchSelectedPayload;
 
 export const MODE_SECONDS: Record<TimerMode, number> = {
   solo_brainstorm: 2 * 60,

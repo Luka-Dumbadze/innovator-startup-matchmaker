@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Timer, Users } from "lucide-react";
+import { Mic2, Timer, Users, X } from "lucide-react";
 
 import type { DailySession, IdeaNotes, PlayerProfile, Team } from "@/types/game";
 import { ElevatorPitchView } from "@/components/player/ElevatorPitchView";
@@ -26,6 +26,7 @@ import {
   saveTeamFoundation,
 } from "@/lib/utils/player-storage";
 import { TOOL_SLOT_META } from "@/lib/constants/preset-words";
+import type { PitchSelectionState } from "@/hooks/useSessionTimerSync";
 
 type AssignedTeamViewProps = {
   session: DailySession;
@@ -33,6 +34,115 @@ type AssignedTeamViewProps = {
   profile: PlayerProfile;
   onToast?: (message: string, tone?: "success" | "error") => void;
 };
+
+function PitcherStageHero({
+  selection,
+  onDismiss,
+}: {
+  selection: PitchSelectionState;
+  onDismiss: () => void;
+}) {
+  const words =
+    selection.toolWords.length > 0
+      ? selection.toolWords
+      : ["—", "—", "—"];
+
+  return (
+    <motion.div
+      role="dialog"
+      aria-modal="true"
+      aria-label="შენი ჯერია პრეზენტატორად"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/80 p-3 backdrop-blur-sm sm:items-center"
+    >
+      <motion.div
+        initial={{ y: 40, scale: 0.96, opacity: 0 }}
+        animate={{ y: 0, scale: 1, opacity: 1 }}
+        exit={{ y: 24, opacity: 0 }}
+        transition={{ type: "spring", stiffness: 260, damping: 22 }}
+        className="relative max-h-[92vh] w-full max-w-md overflow-auto rounded-3xl border-2 border-amber-300/70 bg-gradient-to-b from-amber-400/25 via-emerald-500/15 to-slate-950 p-5 shadow-[0_0_60px_-8px_rgba(251,191,36,0.65)]"
+        style={{
+          borderTopWidth: 6,
+          borderTopColor: selection.teamColor ?? "#fbbf24",
+        }}
+      >
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="absolute top-3 right-3 rounded-full bg-slate-900/80 p-2 text-slate-300 ring-1 ring-slate-600 hover:text-white"
+          aria-label="დახურვა"
+        >
+          <X className="size-4" />
+        </button>
+
+        <motion.p
+          animate={{ scale: [1, 1.03, 1], opacity: [1, 0.85, 1] }}
+          transition={{ duration: 1.6, repeat: Infinity }}
+          className="pr-8 font-[family-name:var(--font-noto-georgian)] text-xl font-black leading-snug text-amber-100"
+        >
+          🎉 შენი ჯერია! სისტემამ აგირჩია პრეზენტატორად! 🎤
+        </motion.p>
+
+        <p className="mt-2 font-[family-name:var(--font-noto-georgian)] text-sm font-semibold text-emerald-200">
+          {selection.teamName}
+        </p>
+
+        <div className="mt-5 space-y-4">
+          <div>
+            <p className="text-[10px] font-bold tracking-[0.16em] text-slate-400 uppercase">
+              Startup
+            </p>
+            <p className="text-3xl font-black leading-tight text-white">
+              {selection.startupName}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] font-bold tracking-[0.16em] text-slate-400 uppercase">
+              1-Sentence Solution
+            </p>
+            <p className="font-[family-name:var(--font-noto-georgian)] text-xl leading-relaxed font-bold text-slate-50">
+              {selection.solution}
+            </p>
+          </div>
+          <div>
+            <p className="mb-2 text-[10px] font-bold tracking-[0.16em] text-slate-400 uppercase">
+              3 Innovation Tools
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              {TOOL_SLOT_META.map((slot, i) => (
+                <div
+                  key={slot.label}
+                  className="rounded-xl bg-slate-950/80 px-2 py-3 text-center ring-1 ring-emerald-400/30"
+                >
+                  <p className="text-sm" aria-hidden>
+                    {slot.icon}
+                  </p>
+                  <p className="mt-1 font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-teal-100">
+                    {words[i] ?? "—"}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 font-[family-name:var(--font-noto-georgian)] text-base leading-relaxed text-slate-200">
+              {selection.tools}
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-amber-400 py-3.5 font-[family-name:var(--font-noto-georgian)] text-base font-black text-slate-950"
+        >
+          <Mic2 className="size-5" />
+          მზად ვარ სცენისთვის
+        </button>
+      </motion.div>
+    </motion.div>
+  );
+}
 
 const BANNER_STYLES: Record<
   TimerMode,
@@ -176,6 +286,13 @@ export function AssignedTeamView({
     timer.secondsRemaining < MODE_SECONDS[timer.mode];
   const hubActive = timer.mode === "team_brainstorm" && !submitted;
 
+  const pitchSelection = timer.pitchSelection;
+  const isMyTeamOnStage =
+    !!pitchSelection && pitchSelection.teamId === team.id;
+  const isSelectedPitcher =
+    isMyTeamOnStage && pitchSelection.selectedPitcherUid === playerUid;
+  const isTeammateOnStage = isMyTeamOnStage && !isSelectedPitcher;
+
   return (
     <div className="mx-auto w-full max-w-md space-y-5 px-4 py-6 pb-10">
       <motion.header
@@ -213,6 +330,23 @@ export function AssignedTeamView({
           </motion.div>
         ) : null}
       </motion.header>
+
+      <AnimatePresence>
+        {isTeammateOnStage && pitchSelection ? (
+          <motion.div
+            key="teammate-on-stage"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 6 }}
+            className="rounded-2xl border border-emerald-400/50 bg-emerald-500/20 px-4 py-3 text-left shadow-[0_0_30px_-10px_rgba(16,185,129,0.55)]"
+          >
+            <p className="font-[family-name:var(--font-noto-georgian)] text-base font-black text-emerald-50">
+              🎤 თქვენი გუნდი სცენაზეა! პრეზენტატორი:{" "}
+              {pitchSelection.selectedPitcherNickname}
+            </p>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       <AnimatePresence mode="wait">
         {(timer.running || timerVisible) && !submitted && !timer.expiredAlert ? (
@@ -357,6 +491,16 @@ export function AssignedTeamView({
         mode={timer.mode}
         onDismiss={timer.dismissExpiredAlert}
       />
+
+      <AnimatePresence>
+        {isSelectedPitcher && pitchSelection ? (
+          <PitcherStageHero
+            key={`pitcher-${pitchSelection.teamId}-${pitchSelection.selectedPitcherUid}`}
+            selection={pitchSelection}
+            onDismiss={timer.dismissPitchSelection}
+          />
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }
