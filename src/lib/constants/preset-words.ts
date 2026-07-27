@@ -2,7 +2,7 @@
  * Global Challenge + 3 Structured Innovation Tools banks for daily auto-fill.
  *
  * Formula per team:
- *   1 Global Human Challenge + 1 Physical Object + 1 Tech Driver + 1 Environment Effect
+ *   1 Global Human Challenge + 1 Physical Object + 1 Tech Driver + 1 Material / Element
  */
 
 export type TeamColorPreset = {
@@ -18,16 +18,16 @@ export type TeamPresetConfig = {
   domain: string;
   /**
    * Exactly 3 innovation tools, ordered as:
-   * [0] Physical Object · [1] Tech Driver · [2] Environment Effect
+   * [0] Physical Object · [1] Tech Driver · [2] Material / Element
    */
   words: string[];
 };
 
 /** Labels for the 3 structured tool slots (index-aligned with `words`). */
 export const TOOL_SLOT_META = [
-  { icon: "🛠️", label: "ფიზიკური ნივთი", shortLabel: "Object" },
+  { icon: "🛠️", label: "ნივთი", shortLabel: "Object" },
   { icon: "⚡", label: "ტექნოლოგია", shortLabel: "Tech" },
-  { icon: "🌀", label: "გარემო/ტრიგერი", shortLabel: "Environment" },
+  { icon: "🧱", label: "მასალა / ელემენტი", shortLabel: "Material" },
 ] as const;
 
 /** Fixed palette for the 8 morning teams (order = team_number 1…8). */
@@ -63,57 +63,48 @@ export const GEORGIAN_SECTORS = GLOBAL_CHALLENGES;
 
 /** Everyday physical objects used as innovation building blocks. */
 export const PHYSICAL_OBJECTS: readonly string[] = [
-  "სარკე",
   "ქოლგა",
+  "სამაჯური",
+  "რუკა",
+  "დაფა",
+  "ზურგჩანთა",
+  "წიგნი",
   "კარი",
-  "მაცივარი",
-  "ჩანთა",
   "სათვალე",
-  "სკამი",
-  "ბეჭედი",
-  "ყურსასმენები",
-  "საათი",
-  "ფანჯარა",
-  "მაგიდა",
 ] as const;
 
 /** Technology drivers that power the solution. */
 export const TECH_DRIVERS: readonly string[] = [
-  "დრონი",
-  "სენსორი",
-  "მზის პანელი",
-  "AI რობოტი",
-  "აპლიკაცია",
-  "ბიომეტრია",
-  "კაფსულა",
-  "კამერა",
+  "დურბინდი",
+  "პულტი",
   "ბატარეა",
-  "ანტენა",
-  "მიკროფონი",
-  "პროექტორი",
+  "კამერა",
+  "Wi-Fi",
+  "ყურსასმენი",
+  "ელექტროძრავა",
+  "ხელოვნური ინტელექტი",
 ] as const;
 
-/** Environment / emotional / sensory triggers. */
-export const ENVIRONMENT_EFFECTS: readonly string[] = [
-  "მუსიკა",
-  "სიბნელე",
-  "სიცხე",
-  "ხმაური",
-  "წვიმა",
-  "სიჩქარე",
-  "ემოცია",
-  "ქარი",
-  "სინათლე",
-  "სიჩუმე",
-  "ველი",
-  "ტალღა",
+/** Materials and elements that shape the solution. */
+export const MATERIALS_AND_ELEMENTS: readonly string[] = [
+  "პლასტმასი",
+  "რეზინი",
+  "მინა",
+  "სპილენცი",
+  "წყალი",
+  "ქვიშა",
+  "პოლიეთილენი",
+  "ტყავი",
 ] as const;
+
+/** @deprecated Prefer MATERIALS_AND_ELEMENTS — kept for older imports. */
+export const ENVIRONMENT_EFFECTS = MATERIALS_AND_ELEMENTS;
 
 /** Flat union of all tool banks (legacy helpers / docs). */
 export const GEORGIAN_PRESET_WORDS: readonly string[] = [
   ...PHYSICAL_OBJECTS,
   ...TECH_DRIVERS,
-  ...ENVIRONMENT_EFFECTS,
+  ...MATERIALS_AND_ELEMENTS,
 ] as const;
 
 function shuffleInPlace<T>(items: T[]): T[] {
@@ -147,19 +138,21 @@ function pickUniqueFromBank(bank: readonly string[], count: number): string[] {
 
 /**
  * Returns 8 team configs with fixed color presets and the structured formula:
- * 1 Global Challenge + 1 Physical Object + 1 Tech Driver + 1 Environment Effect.
+ * 1 Global Challenge + 1 Physical Object + 1 Tech Driver + 1 Material / Element.
+ *
+ * Each category uses unique words across all 8 teams (no duplicates within a session).
  */
 export function generateRandomPresets(): TeamPresetConfig[] {
   const challenges = pickUniqueFromBank(GLOBAL_CHALLENGES, 8);
   const physical = pickUniqueFromBank(PHYSICAL_OBJECTS, 8);
   const tech = pickUniqueFromBank(TECH_DRIVERS, 8);
-  const environment = pickUniqueFromBank(ENVIRONMENT_EFFECTS, 8);
+  const materials = pickUniqueFromBank(MATERIALS_AND_ELEMENTS, 8);
 
   return TEAM_COLOR_PRESETS.map((preset, index) => ({
     teamNumber: index + 1,
     name: preset.label,
     color: preset.hex,
     domain: challenges[index]!,
-    words: [physical[index]!, tech[index]!, environment[index]!],
+    words: [physical[index]!, tech[index]!, materials[index]!],
   }));
 }

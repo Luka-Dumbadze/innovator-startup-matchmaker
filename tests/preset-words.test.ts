@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  ENVIRONMENT_EFFECTS,
   GLOBAL_CHALLENGES,
+  MATERIALS_AND_ELEMENTS,
   PHYSICAL_OBJECTS,
   TECH_DRIVERS,
   generateRandomPresets,
@@ -29,7 +29,7 @@ describe("generateRandomPresets", () => {
     const teams = generateRandomPresets();
     const physicalSet = new Set(PHYSICAL_OBJECTS);
     const techSet = new Set(TECH_DRIVERS);
-    const envSet = new Set(ENVIRONMENT_EFFECTS);
+    const materialsSet = new Set(MATERIALS_AND_ELEMENTS);
     const challengeSet = new Set(GLOBAL_CHALLENGES);
 
     for (const team of teams) {
@@ -37,7 +37,7 @@ describe("generateRandomPresets", () => {
       expect(team.words).toHaveLength(3);
       expect(physicalSet.has(team.words[0]!)).toBe(true);
       expect(techSet.has(team.words[1]!)).toBe(true);
-      expect(envSet.has(team.words[2]!)).toBe(true);
+      expect(materialsSet.has(team.words[2]!)).toBe(true);
     }
   });
 
@@ -46,11 +46,11 @@ describe("generateRandomPresets", () => {
     const challenges = teams.map((t) => t.domain);
     const physical = teams.map((t) => t.words[0]!);
     const tech = teams.map((t) => t.words[1]!);
-    const environment = teams.map((t) => t.words[2]!);
+    const materials = teams.map((t) => t.words[2]!);
 
     expect(new Set(challenges).size).toBe(8);
     expect(new Set(physical).size).toBe(8);
     expect(new Set(tech).size).toBe(8);
-    expect(new Set(environment).size).toBe(8);
+    expect(new Set(materials).size).toBe(8);
   });
 });

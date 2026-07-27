@@ -19,7 +19,7 @@ export const HOST_TEAM_DISPLAY: Record<
 export const HOST_TOOL_ROLES = [
   { icon: "🛠️", role: "ნივთი" },
   { icon: "⚡", role: "ტექნოლოგია" },
-  { icon: "🌀", role: "გარემო" },
+  { icon: "🧱", role: "მასალა / ელემენტი" },
 ] as const;
 
 export function hostTeamTitle(teamNumber: number, fallbackName: string): string {

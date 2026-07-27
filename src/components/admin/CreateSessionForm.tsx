@@ -11,6 +11,7 @@ import {
 import {
   generateRandomPresets,
   TEAM_COLOR_PRESETS,
+  TOOL_SLOT_META,
   type TeamPresetConfig,
 } from "@/lib/constants/preset-words";
 import { useToast } from "@/components/admin/ToastProvider";
@@ -145,13 +146,7 @@ export function CreateSessionForm() {
             </label>
 
             <div className="grid gap-1.5">
-              {(
-                [
-                  { icon: "🛠️", label: "ფიზიკური ნივთი" },
-                  { icon: "⚡", label: "ტექნოლოგია" },
-                  { icon: "🌀", label: "გარემო/ტრიგერი" },
-                ] as const
-              ).map((slot, wordIndex) => (
+              {TOOL_SLOT_META.map((slot, wordIndex) => (
                 <label key={slot.label} className="block">
                   <span className="mb-0.5 block text-[10px] font-bold tracking-wide text-slate-500">
                     {slot.icon} {slot.label}
