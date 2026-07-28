@@ -11,7 +11,13 @@ import {
   VOTING_SECONDS,
   broadcastTimerEvent,
   formatTimerClock,
+  normalizeTeamId,
+  resolvePitchIdea,
+  resolvePitcher,
+  selectNextPitchTeam,
   sessionTimerChannelName,
+  DEFAULT_PITCHER_NICKNAME,
+  type PitchRosterMember,
   type PitchSelectedPayload,
   type TimerMode,
 } from "@/lib/timer/session-timer";
@@ -55,12 +61,6 @@ function pickRandom<T>(items: readonly T[]): T | null {
   if (items.length === 0) return null;
   return items[Math.floor(Math.random() * items.length)]!;
 }
-
-type RosterMember = {
-  player_uid: string;
-  nickname: string;
-  real_name: string;
-};
 
 const START_BUTTONS: { mode: TimerMode; label: string }[] = [
   { mode: "solo_brainstorm", label: "▶️ 2-წთ ინდივიდუალური დაწყება" },
@@ -288,14 +288,17 @@ export function LiveTimerHost({
   );
 
   const fetchRoster = useCallback(
-    async (teamId: string): Promise<RosterMember[]> => {
+    async (teamId: string): Promise<PitchRosterMember[]> => {
       const supabase = createBrowserSupabaseClient();
       const { data, error } = await supabase
         .from("player_assignments")
         .select("player_uid, nickname, real_name")
         .eq("session_id", sessionId)
         .eq("team_id", teamId);
-      if (error) throw new Error(error.message);
+      if (error) {
+        console.error("[pitch-select] roster fetch failed", { teamId, error });
+        throw new Error(error.message);
+      }
       return (data ?? []).map((m) => ({
         player_uid: m.player_uid,
         nickname: m.nickname ?? "",
@@ -305,76 +308,87 @@ export function LiveTimerHost({
     [sessionId]
   );
 
+  /**
+   * Idea fetch must NEVER block pitch selection. Missing rows / query errors
+   * resolve to null so `resolvePitchIdea` can supply the fallback copy.
+   */
   const fetchFinalIdea = useCallback(
     async (teamId: string) => {
-      const supabase = createBrowserSupabaseClient();
-      const { data, error } = await supabase
-        .from("submitted_ideas")
-        .select(
-          "startup_name, one_sentence_solution, tools_integration, author_nickname, likes_count, dislikes_count"
-        )
-        .eq("session_id", sessionId)
-        .eq("team_id", teamId)
-        .eq("is_final_team_pitch", true)
-        .maybeSingle();
-      if (error) throw new Error(error.message);
-      return data;
+      try {
+        const supabase = createBrowserSupabaseClient();
+        const { data, error } = await supabase
+          .from("submitted_ideas")
+          .select(
+            "startup_name, one_sentence_solution, tools_integration, author_nickname, likes_count, dislikes_count"
+          )
+          .eq("session_id", sessionId)
+          .eq("team_id", teamId)
+          .eq("is_final_team_pitch", true)
+          .maybeSingle();
+        if (error) {
+          console.warn("[pitch-select] idea fetch error — using fallback", {
+            teamId,
+            error,
+          });
+          return null;
+        }
+        return data;
+      } catch (err) {
+        console.warn("[pitch-select] idea fetch threw — using fallback", {
+          teamId,
+          err,
+        });
+        return null;
+      }
     },
     [sessionId]
   );
 
   const pickNextTeamAndPitcher = useCallback(() => {
     startPick(async () => {
-      setPickError(null);
-      const unpitched = sortedTeams.filter((t) => !pitchedTeamIds.includes(t.id));
-      if (unpitched.length === 0) {
-        setPickError("ყველა გუნდი უკვე გაფიჩულია");
-        return;
-      }
-
-      const chosen = pickRandom(unpitched);
-      if (!chosen) {
-        setPickError("გუნდის არჩევა ვერ მოხერხდა");
-        return;
-      }
-
       try {
+        setPickError(null);
+
+        const step = selectNextPitchTeam(sortedTeams, pitchedTeamIds);
+        if (step.done) {
+          setPickError("ყველა გუნდი უკვე გაფიჩულია");
+          return;
+        }
+
+        const { chosen, nextPitchedIds, remainingAfter } = step;
+        const teamId = normalizeTeamId(chosen.id);
+
         const [roster, idea] = await Promise.all([
-          fetchRoster(chosen.id),
-          fetchFinalIdea(chosen.id),
+          fetchRoster(teamId).catch((err) => {
+            console.warn("[pitch-select] roster unavailable — using fallback pitcher", err);
+            return [] as PitchRosterMember[];
+          }),
+          fetchFinalIdea(teamId),
         ]);
 
-        if (roster.length === 0) {
-          setPickError("ამ გუნდში მოთამაშეები არ არიან");
-          return;
-        }
-
-        const pitcher = pickRandom(roster);
-        if (!pitcher) {
-          setPickError("პრეზენტატორის არჩევა ვერ მოხერხდა");
-          return;
-        }
-
-        const nextPitched = [...pitchedTeamIds, chosen.id];
-        const remainingTeams = sortedTeams.filter((t) => !nextPitched.includes(t.id));
-        const nextUp = pickRandom(remainingTeams);
-        const count = nextPitched.length;
+        const pitcher = resolvePitcher(roster);
+        const pitch = resolvePitchIdea(idea);
+        const nextUp = pickRandom(remainingAfter);
+        const count = nextPitchedIds.length;
         const progressText = `${count} / ${sortedTeams.length} გუნდი გაფიჩულია`;
 
         const selection: StageSelection = {
           team: chosen,
           pitcherUid: pitcher.player_uid,
-          pitcherNickname: pitcher.nickname || idea?.author_nickname || "Pitcher",
-          pitcherRealName: pitcher.real_name || "—",
-          startupName: idea?.startup_name?.trim() || "Untitled Startup",
-          solution: idea?.one_sentence_solution?.trim() || "—",
-          tools: idea?.tools_integration?.trim() || "—",
+          pitcherNickname:
+            pitcher.nickname ||
+            idea?.author_nickname ||
+            DEFAULT_PITCHER_NICKNAME,
+          pitcherRealName: pitcher.real_name,
+          startupName: pitch.startup_name,
+          solution: pitch.one_sentence_solution,
+          tools: pitch.tools_integration,
           nextUpTeam: nextUp,
           progressText,
           pitchedCount: count,
         };
 
-        setPitchedTeamIds(nextPitched);
+        setPitchedTeamIds(nextPitchedIds);
         setDeclinedPitcherUids([]);
         setStage(selection);
         setLikesCount(Number(idea?.likes_count ?? 0));
@@ -385,7 +399,10 @@ export function LiveTimerHost({
         votingEndsAtRef.current = null;
         broadcastPitchSelected(selection);
       } catch (err) {
-        setPickError(err instanceof Error ? err.message : "არჩევა ვერ მოხერხდა");
+        console.error("[pitch-select] unexpected error in pickNextTeamAndPitcher", err);
+        setPickError(
+          err instanceof Error ? err.message : "არჩევა ვერ მოხერხდა — სცადეთ თავიდან"
+        );
       }
     });
   }, [
@@ -398,40 +415,42 @@ export function LiveTimerHost({
 
   const rerollPitcher = useCallback(() => {
     startPick(async () => {
-      setPickError(null);
-      const current = stageRef.current;
-      if (!current) {
-        setPickError("ჯერ აირჩიეთ გუნდი");
-        return;
-      }
-
       try {
-        const roster = await fetchRoster(current.team.id);
-        const declined = [...new Set([...declinedPitcherUids, current.pitcherUid])];
-        const pool = roster.filter((m) => !declined.includes(m.player_uid));
-
-        if (pool.length === 0) {
-          setPickError("სხვა ხელმისაწვდომი წევრი ამ გუნდში არ არის");
+        setPickError(null);
+        const current = stageRef.current;
+        if (!current) {
+          setPickError("ჯერ აირჩიეთ გუნდი");
           return;
         }
 
-        const pitcher = pickRandom(pool);
-        if (!pitcher) {
-          setPickError("პრეზენტატორის არჩევა ვერ მოხერხდა");
+        const roster = await fetchRoster(normalizeTeamId(current.team.id)).catch(
+          (err) => {
+            console.warn("[pitch-reroll] roster unavailable", err);
+            return [] as PitchRosterMember[];
+          }
+        );
+        const declined = [
+          ...new Set([...declinedPitcherUids, current.pitcherUid]),
+        ];
+        const pitcher = resolvePitcher(roster, { declinedUids: declined });
+
+        if (pitcher.isFallback) {
+          setPickError("სხვა ხელმისაწვდომი წევრი ამ გუნდში არ არის");
           return;
         }
 
         const next: StageSelection = {
           ...current,
           pitcherUid: pitcher.player_uid,
-          pitcherNickname: pitcher.nickname || "Pitcher",
-          pitcherRealName: pitcher.real_name || "—",
+          pitcherNickname: pitcher.nickname,
+          pitcherRealName: pitcher.real_name,
         };
 
         setDeclinedPitcherUids(declined);
         setStage(next);
         broadcastPitchSelected(next);
       } catch (err) {
+        console.error("[pitch-reroll] unexpected error", err);
         setPickError(err instanceof Error ? err.message : "Re-roll ვერ მოხერხდა");
       }
     });

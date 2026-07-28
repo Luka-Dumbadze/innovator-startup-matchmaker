@@ -191,6 +191,159 @@ export function formatTimerClock(totalSeconds: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+/** Displayed when a team has no final pitch row in `submitted_ideas`. */
+export const EMPTY_PITCH_FALLBACK = {
+  startup_name: "იდეა არ არის შეყვანილი",
+  one_sentence_solution: "გუნდს იდეა არ დაუწერია",
+  tools_integration: "",
+} as const;
+
+/** Used when a team's roster is empty or every member has declined. */
+export const DEFAULT_PITCHER_NICKNAME = "გუნდის წარმომადგენელი";
+export const DEFAULT_PITCHER_UID = "fallback-pitcher";
+
+export type PitchIdeaFields = {
+  startup_name: string;
+  one_sentence_solution: string;
+  tools_integration: string;
+};
+
+export type PitchRosterMember = {
+  player_uid: string;
+  nickname: string;
+  real_name: string;
+};
+
+export type ResolvedPitcher = PitchRosterMember & { isFallback: boolean };
+
+/** Normalize team ids to string UUIDs for consistent Set membership. */
+export function normalizeTeamId(id: string | number): string {
+  return String(id);
+}
+
+/**
+ * Teams that have not yet pitched. Never filters on `submitted_ideas` —
+ * every session team remains eligible until its id is in `pitchedTeamIds`.
+ */
+export function filterUnpitchedTeams<T extends { id: string }>(
+  teams: readonly T[],
+  pitchedTeamIds: readonly string[],
+): T[] {
+  const pitched = new Set(pitchedTeamIds.map(normalizeTeamId));
+  return teams.filter((t) => !pitched.has(normalizeTeamId(t.id)));
+}
+
+/** Resolve pitch copy; missing / empty idea fields get the clean Georgian fallback. */
+export function resolvePitchIdea(
+  idea:
+    | {
+        startup_name?: string | null;
+        one_sentence_solution?: string | null;
+        tools_integration?: string | null;
+      }
+    | null
+    | undefined,
+): PitchIdeaFields {
+  if (!idea) {
+    return { ...EMPTY_PITCH_FALLBACK };
+  }
+
+  const startup = idea.startup_name?.trim() ?? "";
+  const solution = idea.one_sentence_solution?.trim() ?? "";
+  const tools = idea.tools_integration?.trim() ?? "";
+
+  return {
+    startup_name: startup || EMPTY_PITCH_FALLBACK.startup_name,
+    one_sentence_solution: solution || EMPTY_PITCH_FALLBACK.one_sentence_solution,
+    tools_integration: tools || EMPTY_PITCH_FALLBACK.tools_integration,
+  };
+}
+
+/**
+ * Pick a random roster member, excluding declined UIDs.
+ * Empty roster / all-declined → safe fallback pitcher (never throws / freezes).
+ */
+export function resolvePitcher(
+  roster: readonly PitchRosterMember[],
+  options?: {
+    declinedUids?: readonly string[];
+    random?: () => number;
+  },
+): ResolvedPitcher {
+  const declined = new Set(options?.declinedUids ?? []);
+  const pool = roster.filter((m) => !declined.has(m.player_uid));
+  if (pool.length === 0) {
+    return {
+      player_uid: DEFAULT_PITCHER_UID,
+      nickname: DEFAULT_PITCHER_NICKNAME,
+      real_name: "—",
+      isFallback: true,
+    };
+  }
+  const rnd = options?.random ?? Math.random;
+  const pitcher = pool[Math.floor(rnd() * pool.length)]!;
+  return {
+    player_uid: pitcher.player_uid,
+    nickname: pitcher.nickname,
+    real_name: pitcher.real_name || "—",
+    isFallback: false,
+  };
+}
+
+export type NextPitchSelection<T extends { id: string }> =
+  | { done: true }
+  | {
+      done: false;
+      chosen: T;
+      nextPitchedIds: string[];
+      remainingAfter: T[];
+    };
+
+/**
+ * Randomly select the next unpitched team and advance pitched-id tracking.
+ * Selection is based solely on team identity — not idea submission status.
+ */
+export function selectNextPitchTeam<T extends { id: string }>(
+  teams: readonly T[],
+  pitchedTeamIds: readonly string[],
+  random: () => number = Math.random,
+): NextPitchSelection<T> {
+  const unpitched = filterUnpitchedTeams(teams, pitchedTeamIds);
+  if (unpitched.length === 0) {
+    return { done: true };
+  }
+
+  const chosen = unpitched[Math.floor(random() * unpitched.length)]!;
+  const nextPitchedIds = [
+    ...pitchedTeamIds.map(normalizeTeamId),
+    normalizeTeamId(chosen.id),
+  ];
+  const remainingAfter = filterUnpitchedTeams(teams, nextPitchedIds);
+
+  return { done: false, chosen, nextPitchedIds, remainingAfter };
+}
+
+/**
+ * Sequentially pick until every team has pitched (deterministic when `random` is injected).
+ * Useful for verifying that missing ideas never block the queue.
+ */
+export function selectAllPitchTeamsSequentially<T extends { id: string }>(
+  teams: readonly T[],
+  random: () => number = Math.random,
+): T[] {
+  const order: T[] = [];
+  let pitched: string[] = [];
+
+  for (let i = 0; i < teams.length; i += 1) {
+    const step = selectNextPitchTeam(teams, pitched, random);
+    if (step.done) break;
+    order.push(step.chosen);
+    pitched = step.nextPitchedIds;
+  }
+
+  return order;
+}
+
 export async function broadcastTimerEvent(
   channel: RealtimeChannel | null,
   event: TimerBroadcastEvent,
