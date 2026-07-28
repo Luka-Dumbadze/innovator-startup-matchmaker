@@ -97,7 +97,8 @@ function parsePitchSelection(data: PitchSelectedPayload): PitchSelectionState | 
  */
 export function useSessionTimerSync(
   sessionId: string | null,
-  myTeamId: string | null = null
+  myTeamId: string | null = null,
+  myPlayerUid: string | null = null
 ): SyncedTimerState {
   const [mode, setMode] = useState<TimerMode>("solo_brainstorm");
   const [secondsRemaining, setSecondsRemaining] = useState(MODE_SECONDS.solo_brainstorm);
@@ -116,6 +117,8 @@ export function useSessionTimerSync(
   const votingEndsAtRef = useRef<number | null>(null);
   const activePitchTeamIdRef = useRef<string | null>(null);
   const myTeamIdRef = useRef<string | null>(myTeamId);
+  const myPlayerUidRef = useRef<string | null>(myPlayerUid);
+  const pitchSelectionRef = useRef<PitchSelectionState | null>(null);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -128,6 +131,14 @@ export function useSessionTimerSync(
   useEffect(() => {
     myTeamIdRef.current = myTeamId;
   }, [myTeamId]);
+
+  useEffect(() => {
+    myPlayerUidRef.current = myPlayerUid;
+  }, [myPlayerUid]);
+
+  useEffect(() => {
+    pitchSelectionRef.current = pitchSelection;
+  }, [pitchSelection]);
 
   const clearLocalTick = useCallback(() => {
     if (intervalRef.current !== null) {
@@ -289,12 +300,23 @@ export function useSessionTimerSync(
         const data = payload as PitchSelectedPayload;
         const parsed = parsePitchSelection(data);
         if (!parsed) return;
+
+        const previousPitcherUid = pitchSelectionRef.current?.selectedPitcherUid;
+        const pitcherChanged = previousPitcherUid !== parsed.selectedPitcherUid;
+
         setPitchSelection(parsed);
         setActivePitchTeamId(parsed.teamId);
         activePitchTeamIdRef.current = parsed.teamId;
+
         try {
-          if (myTeamIdRef.current === parsed.teamId) {
-            navigator.vibrate?.([120, 60, 120, 60, 200]);
+          if (pitcherChanged && myPlayerUidRef.current === parsed.selectedPitcherUid) {
+            navigator.vibrate?.([200, 80, 200, 80, 300]);
+          } else if (
+            !pitcherChanged &&
+            myTeamIdRef.current === parsed.teamId &&
+            myPlayerUidRef.current !== parsed.selectedPitcherUid
+          ) {
+            navigator.vibrate?.([80, 40, 80]);
           }
         } catch {
           // ignore

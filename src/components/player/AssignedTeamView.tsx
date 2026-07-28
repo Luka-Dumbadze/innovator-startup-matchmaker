@@ -173,11 +173,14 @@ export function AssignedTeamView({
   onToast,
 }: AssignedTeamViewProps) {
   const isFull = team.current_count >= team.max_capacity;
-  const timer = useSessionTimerSync(session.id, team.id);
+  const [playerUid] = useState(() => getOrCreatePlayerUid());
+  const timer = useSessionTimerSync(session.id, team.id, playerUid);
   const guidance = PHASE_GUIDANCE[timer.mode];
   const bannerStyle = BANNER_STYLES[timer.mode];
 
-  const [playerUid] = useState(() => getOrCreatePlayerUid());
+  const [pitcherHeroDismissedFor, setPitcherHeroDismissedFor] = useState<string | null>(
+    null
+  );
   const [localNotes, setLocalNotes] = useState<IdeaNotes>(() => getIdeaNotes(session.id));
   const [foundationNotes, setFoundationNotes] = useState<IdeaNotes | null>(null);
   const [locked, setLocked] = useState(() => isPitchSubmitted(session.id));
@@ -293,6 +296,13 @@ export function AssignedTeamView({
   const isSelectedPitcher =
     isMyTeamOnStage && pitchSelection.selectedPitcherUid === playerUid;
   const isTeammateOnStage = isMyTeamOnStage && !isSelectedPitcher;
+  const pitcherSelectionKey = pitchSelection
+    ? `${pitchSelection.teamId}:${pitchSelection.selectedPitcherUid}`
+    : null;
+  const showPitcherHero =
+    isSelectedPitcher &&
+    !!pitchSelection &&
+    pitcherHeroDismissedFor !== pitcherSelectionKey;
 
   const voting = timer.voting;
   const showAudienceVote =
@@ -342,10 +352,11 @@ export function AssignedTeamView({
       <AnimatePresence>
         {isTeammateOnStage && pitchSelection ? (
           <motion.div
-            key="teammate-on-stage"
+            key={`teammate-on-stage-${pitchSelection.selectedPitcherUid}`}
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 6 }}
+            transition={{ type: "spring", stiffness: 260, damping: 22 }}
             className="rounded-2xl border border-emerald-400/50 bg-emerald-500/20 px-4 py-3 text-left shadow-[0_0_30px_-10px_rgba(16,185,129,0.55)]"
           >
             <p className="font-[family-name:var(--font-noto-georgian)] text-base font-black text-emerald-50">
@@ -501,11 +512,11 @@ export function AssignedTeamView({
       />
 
       <AnimatePresence>
-        {isSelectedPitcher && pitchSelection ? (
+        {showPitcherHero && pitchSelection ? (
           <PitcherStageHero
             key={`pitcher-${pitchSelection.teamId}-${pitchSelection.selectedPitcherUid}`}
             selection={pitchSelection}
-            onDismiss={timer.dismissPitchSelection}
+            onDismiss={() => setPitcherHeroDismissedFor(pitcherSelectionKey)}
           />
         ) : null}
       </AnimatePresence>

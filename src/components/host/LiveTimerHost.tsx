@@ -90,6 +90,9 @@ type StageSelection = {
 export type PitchProjectionState = {
   active: boolean;
   spotlight: PitchSpotlightData | null;
+  onDeclineAndRerollPitcher?: () => void;
+  rerollPending?: boolean;
+  rerollDisabled?: boolean;
 };
 
 type LiveTimerHostProps = {
@@ -116,7 +119,7 @@ export function LiveTimerHost({
   const [channelReady, setChannelReady] = useState(false);
   const [pitchedTeamIds, setPitchedTeamIds] = useState<string[]>([]);
   const [stage, setStage] = useState<StageSelection | null>(null);
-  const [triedPitcherUids, setTriedPitcherUids] = useState<string[]>([]);
+  const [declinedPitcherUids, setDeclinedPitcherUids] = useState<string[]>([]);
   const [pickError, setPickError] = useState<string | null>(null);
   const [pickPending, startPick] = useTransition();
 
@@ -170,44 +173,6 @@ export function LiveTimerHost({
     if (progress <= 0.33) return "#eab308";
     return "#22c55e";
   }, [isDone, isUrgent, progress, votingOpen]);
-
-  useEffect(() => {
-    if (!onProjectionChange) return;
-
-    if (!pitchProjectionActive) {
-      onProjectionChange({ active: false, spotlight: null });
-      return;
-    }
-
-    onProjectionChange({
-      active: true,
-      spotlight: {
-        team: activeTeam,
-        pitcherNickname: stage.pitcherNickname,
-        startupName: stage.startupName,
-        solution: stage.solution,
-        toolsIntegration: stage.tools,
-        likesCount,
-        dislikesCount,
-        pitchSecondsRemaining: mode === "pitch" ? remaining : MODE_SECONDS.pitch,
-        votingSecondsRemaining: votingRemaining,
-        votingOpen,
-        pitchLive: mode === "pitch" && running && !votingOpen,
-      },
-    });
-  }, [
-    onProjectionChange,
-    stage,
-    activeTeam,
-    pitchProjectionActive,
-    likesCount,
-    dislikesCount,
-    remaining,
-    votingRemaining,
-    votingOpen,
-    mode,
-    running,
-  ]);
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
@@ -410,7 +375,7 @@ export function LiveTimerHost({
         };
 
         setPitchedTeamIds(nextPitched);
-        setTriedPitcherUids([pitcher.player_uid]);
+        setDeclinedPitcherUids([]);
         setStage(selection);
         setLikesCount(Number(idea?.likes_count ?? 0));
         setDislikesCount(Number(idea?.dislikes_count ?? 0));
@@ -442,16 +407,11 @@ export function LiveTimerHost({
 
       try {
         const roster = await fetchRoster(current.team.id);
-        const candidates = roster.filter(
-          (m) => !triedPitcherUids.includes(m.player_uid)
-        );
-        const pool =
-          candidates.length > 0
-            ? candidates
-            : roster.filter((m) => m.player_uid !== current.pitcherUid);
+        const declined = [...new Set([...declinedPitcherUids, current.pitcherUid])];
+        const pool = roster.filter((m) => !declined.includes(m.player_uid));
 
         if (pool.length === 0) {
-          setPickError("სხვა პრეზენტატორი ამ გუნდში არ არის");
+          setPickError("სხვა ხელმისაწვდომი წევრი ამ გუნდში არ არის");
           return;
         }
 
@@ -461,11 +421,6 @@ export function LiveTimerHost({
           return;
         }
 
-        const nextTried =
-          candidates.length > 0
-            ? [...triedPitcherUids, pitcher.player_uid]
-            : [pitcher.player_uid];
-
         const next: StageSelection = {
           ...current,
           pitcherUid: pitcher.player_uid,
@@ -473,14 +428,57 @@ export function LiveTimerHost({
           pitcherRealName: pitcher.real_name || "—",
         };
 
-        setTriedPitcherUids(nextTried);
+        setDeclinedPitcherUids(declined);
         setStage(next);
         broadcastPitchSelected(next);
       } catch (err) {
         setPickError(err instanceof Error ? err.message : "Re-roll ვერ მოხერხდა");
       }
     });
-  }, [triedPitcherUids, fetchRoster, broadcastPitchSelected]);
+  }, [declinedPitcherUids, fetchRoster, broadcastPitchSelected]);
+
+  useEffect(() => {
+    if (!onProjectionChange) return;
+
+    if (!pitchProjectionActive || !stage || !activeTeam) {
+      onProjectionChange({ active: false, spotlight: null });
+      return;
+    }
+
+    onProjectionChange({
+      active: true,
+      spotlight: {
+        team: activeTeam,
+        pitcherNickname: stage.pitcherNickname,
+        startupName: stage.startupName,
+        solution: stage.solution,
+        toolsIntegration: stage.tools,
+        likesCount,
+        dislikesCount,
+        pitchSecondsRemaining: mode === "pitch" ? remaining : MODE_SECONDS.pitch,
+        votingSecondsRemaining: votingRemaining,
+        votingOpen,
+        pitchLive: mode === "pitch" && running && !votingOpen,
+      },
+      onDeclineAndRerollPitcher: rerollPitcher,
+      rerollPending: pickPending,
+      rerollDisabled: pickPending || votingOpen,
+    });
+  }, [
+    onProjectionChange,
+    stage,
+    activeTeam,
+    pitchProjectionActive,
+    likesCount,
+    dislikesCount,
+    remaining,
+    votingRemaining,
+    votingOpen,
+    mode,
+    running,
+    rerollPitcher,
+    pickPending,
+  ]);
 
   const likesRef = useRef(likesCount);
   const dislikesRef = useRef(dislikesCount);
@@ -669,7 +667,7 @@ export function LiveTimerHost({
   const resetPitchQueue = () => {
     setPitchedTeamIds([]);
     setStage(null);
-    setTriedPitcherUids([]);
+    setDeclinedPitcherUids([]);
     setPickError(null);
     setVotingOpen(false);
     setVotingRemaining(0);
@@ -762,11 +760,11 @@ export function LiveTimerHost({
             <button
               type="button"
               onClick={rerollPitcher}
-              disabled={pickPending || votingOpen || running}
-              className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-amber-200 underline-offset-2 hover:underline disabled:opacity-40"
+              disabled={pickPending || votingOpen}
+              className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-rose-400/40 bg-rose-500/15 px-3 py-2.5 font-[family-name:var(--font-noto-georgian)] text-xs font-black text-rose-100 transition hover:bg-rose-500/25 disabled:cursor-not-allowed disabled:opacity-50 xl:text-sm"
             >
-              <Dices className="size-3" />
-              🎲 Re-roll Pitcher
+              ❌ უარი თქვა ➔ 🎲 სხვა წევრის ამოგდება
+              <span className="hidden xl:inline">(Re-roll Pitcher)</span>
             </button>
           </div>
         ) : null}

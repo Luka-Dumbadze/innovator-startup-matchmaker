@@ -26,9 +26,17 @@ export type PitchSpotlightData = {
 
 type PitchSpotlightCardProps = {
   data: PitchSpotlightData;
+  onDeclineAndRerollPitcher?: () => void;
+  rerollPending?: boolean;
+  rerollDisabled?: boolean;
 };
 
-export function PitchSpotlightCard({ data }: PitchSpotlightCardProps) {
+export function PitchSpotlightCard({
+  data,
+  onDeclineAndRerollPitcher,
+  rerollPending = false,
+  rerollDisabled = false,
+}: PitchSpotlightCardProps) {
   const {
     team,
     pitcherNickname,
@@ -96,9 +104,24 @@ export function PitchSpotlightCard({ data }: PitchSpotlightCardProps) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto px-6 py-5 xl:px-10 xl:py-8">
-        <p className="mb-6 rounded-2xl bg-emerald-500/15 px-5 py-4 font-[family-name:var(--font-noto-georgian)] text-xl font-black text-emerald-100 ring-1 ring-emerald-400/40 xl:text-2xl">
-          🎤 პრეზენტატორი: {pitcherNickname}
-        </p>
+        <div className="mb-6 space-y-3">
+          <p className="rounded-2xl bg-emerald-500/15 px-5 py-4 font-[family-name:var(--font-noto-georgian)] text-xl font-black text-emerald-100 ring-1 ring-emerald-400/40 xl:text-2xl">
+            🎤 პრეზენტატორი: {pitcherNickname}
+          </p>
+
+          {onDeclineAndRerollPitcher ? (
+            <button
+              type="button"
+              onClick={onDeclineAndRerollPitcher}
+              disabled={rerollDisabled || rerollPending}
+              className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border-2 border-rose-400/60 bg-gradient-to-r from-rose-600/30 to-amber-500/20 px-4 py-3.5 font-[family-name:var(--font-noto-georgian)] text-base font-black text-rose-50 shadow-[0_0_30px_-8px_rgba(244,63,94,0.55)] transition hover:from-rose-600/40 hover:to-amber-500/30 disabled:cursor-not-allowed disabled:opacity-50 xl:text-lg"
+            >
+              {rerollPending
+                ? "ირჩევა…"
+                : "❌ უარი თქვა ➔ 🎲 სხვა წევრის ამოგდება (Re-roll Pitcher)"}
+            </button>
+          ) : null}
+        </div>
 
         <div className="mb-6 rounded-2xl border border-indigo-500/40 bg-indigo-950/80 px-5 py-4">
           <p className="font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-indigo-200 xl:text-base">

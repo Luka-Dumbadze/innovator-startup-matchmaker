@@ -119,7 +119,12 @@ export function HostDashboard() {
                 exit={{ opacity: 0 }}
                 className="h-full"
               >
-                <PitchSpotlightCard data={projection.spotlight} />
+                <PitchSpotlightCard
+                  data={projection.spotlight}
+                  onDeclineAndRerollPitcher={projection.onDeclineAndRerollPitcher}
+                  rerollPending={projection.rerollPending}
+                  rerollDisabled={projection.rerollDisabled}
+                />
               </motion.div>
             ) : (
               <motion.div
