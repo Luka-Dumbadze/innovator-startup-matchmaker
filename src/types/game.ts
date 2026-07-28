@@ -14,6 +14,10 @@ export interface DailySession {
   created_at: string;
   /** Set when mentor ends the session; null while still open. */
   ended_at: string | null;
+  /** Mentor-controlled: audience may cast votes while true. */
+  voting_open: boolean;
+  /** Team currently open for audience votes; null when closed. */
+  voting_team_id: string | null;
 }
 
 /**

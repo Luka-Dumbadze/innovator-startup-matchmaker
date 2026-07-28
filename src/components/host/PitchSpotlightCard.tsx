@@ -18,7 +18,7 @@ export type PitchSpotlightData = {
   dislikesCount: number;
   /** Pitch countdown seconds (when pitching). */
   pitchSecondsRemaining: number;
-  /** Voting countdown seconds (when voting window open). */
+  /** Kept for API compat; mentor voting has no auto countdown. */
   votingSecondsRemaining: number;
   votingOpen: boolean;
   pitchLive: boolean;
@@ -27,14 +27,20 @@ export type PitchSpotlightData = {
 type PitchSpotlightCardProps = {
   data: PitchSpotlightData;
   onDeclineAndRerollPitcher?: () => void;
+  onOpenVoting?: () => void;
+  onCloseVoting?: () => void;
   rerollPending?: boolean;
+  votingPending?: boolean;
   rerollDisabled?: boolean;
 };
 
 export function PitchSpotlightCard({
   data,
   onDeclineAndRerollPitcher,
+  onOpenVoting,
+  onCloseVoting,
   rerollPending = false,
+  votingPending = false,
   rerollDisabled = false,
 }: PitchSpotlightCardProps) {
   const {
@@ -46,14 +52,13 @@ export function PitchSpotlightCard({
     likesCount,
     dislikesCount,
     pitchSecondsRemaining,
-    votingSecondsRemaining,
     votingOpen,
     pitchLive,
   } = data;
 
-  const displaySeconds = votingOpen ? votingSecondsRemaining : pitchSecondsRemaining;
-  const timerLabel = votingOpen ? "🗳️ ხმის მიცემა" : "🎤 პიჩის ტაიმერი";
-  const timerUrgent = !votingOpen && pitchLive && pitchSecondsRemaining > 0 && pitchSecondsRemaining <= 10;
+  const timerLabel = votingOpen ? "🗳️ ხმის მიცემა ღიაა" : "🎤 პიჩის ტაიმერი";
+  const timerUrgent =
+    !votingOpen && pitchLive && pitchSecondsRemaining > 0 && pitchSecondsRemaining <= 10;
 
   return (
     <motion.section
@@ -93,13 +98,19 @@ export function PitchSpotlightCard({
           <p className="font-[family-name:var(--font-noto-georgian)] text-xs font-bold tracking-wide opacity-90">
             {timerLabel}
           </p>
-          <motion.p
-            className="font-mono text-5xl font-black tabular-nums tracking-tight xl:text-7xl"
-            animate={timerUrgent ? { scale: [1, 1.05, 1] } : { scale: 1 }}
-            transition={timerUrgent ? { duration: 0.55, repeat: Infinity } : undefined}
-          >
-            {formatTimerClock(displaySeconds)}
-          </motion.p>
+          {votingOpen ? (
+            <p className="font-[family-name:var(--font-noto-georgian)] text-4xl font-black tracking-tight xl:text-6xl">
+              ღიაა
+            </p>
+          ) : (
+            <motion.p
+              className="font-mono text-5xl font-black tabular-nums tracking-tight xl:text-7xl"
+              animate={timerUrgent ? { scale: [1, 1.05, 1] } : { scale: 1 }}
+              transition={timerUrgent ? { duration: 0.55, repeat: Infinity } : undefined}
+            >
+              {formatTimerClock(pitchSecondsRemaining)}
+            </motion.p>
+          )}
         </div>
       </div>
 
@@ -121,6 +132,29 @@ export function PitchSpotlightCard({
                 : "❌ უარი თქვა ➔ 🎲 სხვა წევრის ამოგდება (Re-roll Pitcher)"}
             </button>
           ) : null}
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <button
+              type="button"
+              onClick={onOpenVoting}
+              disabled={!onOpenVoting || votingOpen || votingPending}
+              className="flex min-h-14 w-full items-center justify-center rounded-2xl bg-sky-500 px-4 py-3.5 font-[family-name:var(--font-noto-georgian)] text-base font-black text-slate-950 shadow-[0_0_30px_-8px_rgba(14,165,233,0.55)] transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50 xl:text-lg"
+            >
+              {votingPending && !votingOpen
+                ? "იხსნება…"
+                : "🗳️ ხმის მიცემის გახსნა (Open Voting)"}
+            </button>
+            <button
+              type="button"
+              onClick={onCloseVoting}
+              disabled={!onCloseVoting || !votingOpen || votingPending}
+              className="flex min-h-14 w-full items-center justify-center rounded-2xl border-2 border-slate-500 bg-slate-800 px-4 py-3.5 font-[family-name:var(--font-noto-georgian)] text-base font-black text-slate-100 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50 xl:text-lg"
+            >
+              {votingPending && votingOpen
+                ? "იხურება…"
+                : "🔒 ხმის მიცემის დახურვა (Close Voting)"}
+            </button>
+          </div>
         </div>
 
         <div className="mb-6 rounded-2xl border border-indigo-500/40 bg-indigo-950/80 px-5 py-4">

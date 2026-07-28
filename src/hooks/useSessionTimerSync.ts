@@ -177,44 +177,100 @@ export function useSessionTimerSync(
     setPitchSelection(null);
   }, []);
 
-  const startVotingCountdown = useCallback(
-    (payload: VotingOpenedPayload) => {
-      clearVotingTick();
-      const endsAt =
-        typeof payload.endsAt === "number" && payload.endsAt > Date.now()
-          ? payload.endsAt
-          : Date.now() + Math.max(0, payload.secondsRemaining) * 1000;
-      votingEndsAtRef.current = endsAt;
-      setVoting({
+  const applyVotingOpen = useCallback((payload: {
+    teamId: string;
+    teamName?: string;
+    teamColor?: string | null;
+    likesCount?: number;
+    dislikesCount?: number;
+  }) => {
+    clearVotingTick();
+    votingEndsAtRef.current = null;
+    const fromPitch =
+      pitchSelectionRef.current?.teamId === payload.teamId
+        ? pitchSelectionRef.current
+        : null;
+    setVoting((prev) => {
+      const next = {
         teamId: payload.teamId,
-        teamName: payload.teamName,
-        teamColor: payload.teamColor ?? null,
-        secondsRemaining: Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)),
-        open: true,
-        likesCount: Number(payload.likesCount ?? 0),
-        dislikesCount: Number(payload.dislikesCount ?? 0),
-      });
+        teamName: payload.teamName || fromPitch?.teamName || prev?.teamName || "გუნდი",
+        teamColor: payload.teamColor ?? fromPitch?.teamColor ?? prev?.teamColor ?? null,
+        secondsRemaining: 0,
+        open: true as const,
+        likesCount: Number(payload.likesCount ?? prev?.likesCount ?? 0),
+        dislikesCount: Number(payload.dislikesCount ?? prev?.dislikesCount ?? 0),
+      };
+      if (
+        prev &&
+        prev.open &&
+        prev.teamId === next.teamId &&
+        prev.teamName === next.teamName &&
+        prev.teamColor === next.teamColor
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, [clearVotingTick]);
 
-      votingTickRef.current = window.setInterval(() => {
-        const end = votingEndsAtRef.current;
-        if (end == null) return;
-        const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
-        setVoting((prev) =>
-          prev
-            ? {
-                ...prev,
-                secondsRemaining: left,
-                open: left > 0,
-              }
-            : prev
-        );
-        if (left <= 0) {
-          clearVotingTick();
-          votingEndsAtRef.current = null;
-        }
-      }, 250);
+  const applyVotingClosed = useCallback(
+    (payload?: { teamId?: string; likesCount?: number; dislikesCount?: number }) => {
+      clearVotingTick();
+      votingEndsAtRef.current = null;
+      setVoting((prev) => {
+        if (!prev?.open) return prev;
+        return {
+          ...prev,
+          open: false,
+          secondsRemaining: 0,
+          likesCount: Number(payload?.likesCount ?? prev.likesCount),
+          dislikesCount: Number(payload?.dislikesCount ?? prev.dislikesCount),
+        };
+      });
     },
     [clearVotingTick]
+  );
+
+  const syncVotingFromSessionRow = useCallback(
+    async (
+      row: {
+        voting_open?: boolean | null;
+        voting_team_id?: string | null;
+      },
+      supabase = createBrowserSupabaseClient()
+    ) => {
+      const open = row.voting_open === true;
+      const teamId = row.voting_team_id ?? null;
+
+      if (!open || !teamId) {
+        applyVotingClosed(teamId ? { teamId } : undefined);
+        return;
+      }
+
+      let teamName = "";
+      let teamColor: string | null = null;
+      if (pitchSelectionRef.current?.teamId === teamId) {
+        teamName = pitchSelectionRef.current.teamName;
+        teamColor = pitchSelectionRef.current.teamColor;
+      } else {
+        const { data: teamRow } = await supabase
+          .from("teams")
+          .select("name, color, team_number")
+          .eq("id", teamId)
+          .maybeSingle();
+        if (teamRow) {
+          teamName = `გუნდი ${teamRow.team_number}${teamRow.name ? ` · ${teamRow.name}` : ""}`;
+          teamColor = teamRow.color ?? null;
+        }
+      }
+
+      applyVotingOpen({
+        teamId,
+        teamName: teamName || "გუნდი",
+        teamColor,
+      });
+    },
+    [applyVotingClosed, applyVotingOpen]
   );
 
   const shouldAlarmForPitch = useCallback((targetTeamId: string | null | undefined) => {
@@ -258,6 +314,59 @@ export function useSessionTimerSync(
     },
     [clearVibrateLoop, shouldAlarmForPitch]
   );
+
+  /** DB-backed voting sync: realtime + 1s polling fallback. */
+  useEffect(() => {
+    if (!sessionId) return;
+
+    const supabase = createBrowserSupabaseClient();
+    let cancelled = false;
+
+    const pull = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("daily_sessions")
+          .select("voting_open, voting_team_id")
+          .eq("id", sessionId)
+          .maybeSingle();
+        if (cancelled || error || !data) return;
+        await syncVotingFromSessionRow(data, supabase);
+      } catch (err) {
+        console.warn("[voting-sync] poll failed", err);
+      }
+    };
+
+    void pull();
+    const pollId = window.setInterval(() => {
+      void pull();
+    }, 1000);
+
+    const channel = supabase
+      .channel(`session-voting-db:${sessionId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "daily_sessions",
+          filter: `id=eq.${sessionId}`,
+        },
+        (payload) => {
+          const row = payload.new as {
+            voting_open?: boolean | null;
+            voting_team_id?: string | null;
+          };
+          void syncVotingFromSessionRow(row, supabase);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(pollId);
+      void supabase.removeChannel(channel);
+    };
+  }, [sessionId, syncVotingFromSessionRow]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -401,33 +510,11 @@ export function useSessionTimerSync(
       .on("broadcast", { event: "VOTING_OPENED" }, ({ payload }) => {
         const data = payload as VotingOpenedPayload;
         if (!data?.teamId) return;
-        startVotingCountdown(data);
+        applyVotingOpen(data);
       })
       .on("broadcast", { event: "VOTING_CLOSED" }, ({ payload }) => {
         const data = payload as VotingClosedPayload;
-        clearVotingTick();
-        votingEndsAtRef.current = null;
-        setVoting((prev) => {
-          if (!prev) {
-            if (!data?.teamId) return null;
-            return {
-              teamId: data.teamId,
-              teamName: "",
-              teamColor: null,
-              secondsRemaining: 0,
-              open: false,
-              likesCount: Number(data.likesCount ?? 0),
-              dislikesCount: Number(data.dislikesCount ?? 0),
-            };
-          }
-          return {
-            ...prev,
-            open: false,
-            secondsRemaining: 0,
-            likesCount: Number(data?.likesCount ?? prev.likesCount),
-            dislikesCount: Number(data?.dislikesCount ?? prev.dislikesCount),
-          };
-        });
+        applyVotingClosed(data);
       })
       .on("broadcast", { event: "VOTE_TALLY" }, ({ payload }) => {
         const data = payload as VoteTallyPayload;
@@ -457,7 +544,8 @@ export function useSessionTimerSync(
     clearVotingTick,
     clearVibrateLoop,
     triggerExpired,
-    startVotingCountdown,
+    applyVotingOpen,
+    applyVotingClosed,
   ]);
 
   useEffect(() => {

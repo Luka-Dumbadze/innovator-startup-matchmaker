@@ -305,13 +305,11 @@ export function AssignedTeamView({
     pitcherHeroDismissedFor !== pitcherSelectionKey;
 
   const voting = timer.voting;
-  const activePitchTeamId =
-    timer.activePitchTeamId ?? pitchSelection?.teamId ?? null;
-  const showAudienceVote =
-    !!pitchSelection &&
-    !!activePitchTeamId &&
-    team.id !== activePitchTeamId &&
-    (timer.mode === "pitch" || voting?.open === true);
+  const votingTeamId = voting?.open ? voting.teamId : null;
+  const votingOpen = voting?.open === true && !!votingTeamId;
+  const showAudienceVote = votingOpen && !!votingTeamId && team.id !== votingTeamId;
+  const showOwnTeamVotingBlocked =
+    votingOpen && !!votingTeamId && team.id === votingTeamId;
 
   return (
     <div
@@ -368,6 +366,22 @@ export function AssignedTeamView({
             <p className="font-[family-name:var(--font-noto-georgian)] text-base font-black text-emerald-50">
               🎤 თქვენი გუნდი სცენაზეა! პრეზენტატორი:{" "}
               {pitchSelection.selectedPitcherNickname}
+            </p>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showOwnTeamVotingBlocked ? (
+          <motion.div
+            key="own-team-vote-blocked"
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            className="rounded-xl border border-amber-400/40 bg-amber-500/15 px-3 py-2 text-center"
+          >
+            <p className="font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-amber-100">
+              🎤 თქვენი გუნდი სცენაზეა (ხმის მიცემა დაბლოკილია)
             </p>
           </motion.div>
         ) : null}
@@ -528,16 +542,16 @@ export function AssignedTeamView({
       </AnimatePresence>
 
       <AnimatePresence>
-        {showAudienceVote && pitchSelection && activePitchTeamId ? (
+        {showAudienceVote && votingTeamId && voting ? (
           <VotingCard
-            key={`vote-${session.id}-${activePitchTeamId}-${playerUid}`}
+            key={`vote-${session.id}-${votingTeamId}-${playerUid}`}
             sessionId={session.id}
-            teamId={activePitchTeamId}
-            teamName={pitchSelection.teamName}
-            teamColor={pitchSelection.teamColor}
+            teamId={votingTeamId}
+            teamName={voting.teamName || pitchSelection?.teamName || "გუნდი"}
+            teamColor={voting.teamColor ?? pitchSelection?.teamColor}
             voterUid={playerUid}
-            secondsRemaining={voting?.secondsRemaining ?? timer.secondsRemaining}
-            votingOpen={voting?.open === true}
+            secondsRemaining={voting.secondsRemaining}
+            votingOpen
           />
         ) : null}
       </AnimatePresence>

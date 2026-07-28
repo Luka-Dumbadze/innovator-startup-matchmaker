@@ -152,3 +152,38 @@ export async function castPitchVote(input: {
     vote_type: raw?.vote_type === "dislike" ? "dislike" : "like",
   };
 }
+
+/** Mentor opens or closes audience voting for the active session (DB-backed). */
+export async function setSessionVotingState(input: {
+  sessionId: string;
+  votingOpen: boolean;
+  votingTeamId?: string | null;
+}): Promise<{
+  session_id: string;
+  voting_open: boolean;
+  voting_team_id: string | null;
+}> {
+  const supabase = createBrowserSupabaseClient();
+
+  const { data, error } = await supabase.rpc("set_session_voting_state", {
+    p_session_id: input.sessionId,
+    p_voting_open: input.votingOpen,
+    p_voting_team_id: input.votingOpen ? (input.votingTeamId ?? null) : null,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const raw = data as {
+    session_id?: string;
+    voting_open?: boolean;
+    voting_team_id?: string | null;
+  } | null;
+
+  return {
+    session_id: raw?.session_id ?? input.sessionId,
+    voting_open: Boolean(raw?.voting_open ?? input.votingOpen),
+    voting_team_id: raw?.voting_team_id ?? null,
+  };
+}

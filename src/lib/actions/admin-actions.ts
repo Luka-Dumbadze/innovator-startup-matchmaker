@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { createAdminSupabaseClient } from "@/lib/supabase/server";
+import { toDailySession } from "@/lib/supabase/types";
 import type {
   DailySession,
   PlayerAssignment,
@@ -335,7 +336,7 @@ export async function getActiveSessionSnapshot(): Promise<ActiveSessionSnapshot 
   const teams = (teamRows ?? []).map(mapTeam);
   const totalJoined = teams.reduce((sum, t) => sum + t.current_count, 0);
 
-  return { session, teams, totalJoined };
+  return { session: toDailySession(session), teams, totalJoined };
 }
 
 /** Chronological session list for history table. */
@@ -351,7 +352,7 @@ export async function listSessions(): Promise<DailySession[]> {
     throw new Error(error.message);
   }
 
-  return data ?? [];
+  return (data ?? []).map(toDailySession);
 }
 
 function mapAssignment(row: {
@@ -480,7 +481,7 @@ export async function getFullSessionArchive(
       };
     });
 
-    return { ok: true, data: { session, teams } };
+    return { ok: true, data: { session: toDailySession(session), teams } };
   } catch (err) {
     return {
       ok: false,

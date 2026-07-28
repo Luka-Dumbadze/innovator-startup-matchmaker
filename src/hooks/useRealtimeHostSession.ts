@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
-import { toTeam } from "@/lib/supabase/types";
+import { toTeam, toDailySession } from "@/lib/supabase/types";
 import type { DailySession, Team } from "@/types/game";
 
 export type HostSessionState = {
@@ -98,7 +98,7 @@ export function useRealtimeHostSession(): HostSessionState {
     }
 
     sessionIdRef.current = activeSession.id;
-    setSession(activeSession);
+    setSession(toDailySession(activeSession));
 
     const { data: teamRows, error: teamsError } = await supabase
       .from("teams")
@@ -212,7 +212,7 @@ export function useRealtimeHostSession(): HostSessionState {
           filter: `id=eq.${sessionId}`,
         },
         (payload) => {
-          const next = payload.new as DailySession;
+          const next = toDailySession(payload.new as DailySession);
           setSession(next);
           if (!next.is_active) {
             // Active session flipped off — reload to pick up a new one (if any).

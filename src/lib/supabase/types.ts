@@ -22,6 +22,8 @@ export type Database = {
           is_active: boolean;
           created_at: string;
           ended_at: string | null;
+          voting_open: boolean;
+          voting_team_id: string | null;
         };
         Insert: {
           id?: string;
@@ -29,6 +31,8 @@ export type Database = {
           is_active?: boolean;
           created_at?: string;
           ended_at?: string | null;
+          voting_open?: boolean;
+          voting_team_id?: string | null;
         };
         Update: {
           id?: string;
@@ -36,8 +40,18 @@ export type Database = {
           is_active?: boolean;
           created_at?: string;
           ended_at?: string | null;
+          voting_open?: boolean;
+          voting_team_id?: string | null;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "daily_sessions_voting_team_id_fkey";
+            columns: ["voting_team_id"];
+            isOneToOne: false;
+            referencedRelation: "teams";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       teams: {
         Row: {
@@ -270,6 +284,18 @@ export type Database = {
           vote_type: string;
         } | null;
       };
+      set_session_voting_state: {
+        Args: {
+          p_session_id: string;
+          p_voting_open: boolean;
+          p_voting_team_id?: string | null;
+        };
+        Returns: {
+          session_id: string;
+          voting_open: boolean;
+          voting_team_id: string | null;
+        };
+      };
     };
     Enums: {
       [_ in never]: never;
@@ -279,6 +305,27 @@ export type Database = {
     };
   };
 };
+
+/** Narrow session row → domain DailySession (defaults for voting columns). */
+export function toDailySession(row: {
+  id: string;
+  date_label: string;
+  is_active: boolean;
+  created_at: string;
+  ended_at?: string | null;
+  voting_open?: boolean | null;
+  voting_team_id?: string | null;
+}): DailySession {
+  return {
+    id: row.id,
+    date_label: row.date_label,
+    is_active: row.is_active,
+    created_at: row.created_at,
+    ended_at: row.ended_at ?? null,
+    voting_open: Boolean(row.voting_open),
+    voting_team_id: row.voting_team_id ?? null,
+  };
+}
 
 /** Narrow RPC/table row → domain Team. */
 export function toTeam(

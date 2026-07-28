@@ -122,7 +122,10 @@ export function HostDashboard() {
                 <PitchSpotlightCard
                   data={projection.spotlight}
                   onDeclineAndRerollPitcher={projection.onDeclineAndRerollPitcher}
+                  onOpenVoting={projection.onOpenVoting}
+                  onCloseVoting={projection.onCloseVoting}
                   rerollPending={projection.rerollPending}
+                  votingPending={projection.votingPending}
                   rerollDisabled={projection.rerollDisabled}
                 />
               </motion.div>

@@ -77,13 +77,14 @@ export type PitchSelectedPayload = {
   totalTeams: number;
 };
 
-/** Audience voting window after a 1-minute pitch expires. */
+/** Audience voting window — mentor-controlled (no required countdown). */
 export type VotingOpenedPayload = {
   teamId: string;
   teamName: string;
   teamColor?: string;
-  secondsRemaining: number;
-  endsAt: number;
+  /** Optional legacy countdown; omit for mentor-held open window. */
+  secondsRemaining?: number;
+  endsAt?: number;
   likesCount?: number;
   dislikesCount?: number;
 };

@@ -4,11 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { Pause, RotateCcw, Timer, Dices } from "lucide-react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
-import { createBrowserSupabaseClient } from "@/lib/supabase/client";
+import { createBrowserSupabaseClient, setSessionVotingState } from "@/lib/supabase/client";
 import { hostTeamTitle } from "@/lib/constants/host-labels";
 import {
   MODE_SECONDS,
-  VOTING_SECONDS,
   broadcastTimerEvent,
   formatTimerClock,
   normalizeTeamId,
@@ -91,7 +90,10 @@ export type PitchProjectionState = {
   active: boolean;
   spotlight: PitchSpotlightData | null;
   onDeclineAndRerollPitcher?: () => void;
+  onOpenVoting?: () => void;
+  onCloseVoting?: () => void;
   rerollPending?: boolean;
+  votingPending?: boolean;
   rerollDisabled?: boolean;
 };
 
@@ -124,20 +126,20 @@ export function LiveTimerHost({
   const [pickPending, startPick] = useTransition();
 
   const [votingOpen, setVotingOpen] = useState(false);
-  const [votingRemaining, setVotingRemaining] = useState(0);
+  const [votingPending, startVotingTransition] = useTransition();
   const [likesCount, setLikesCount] = useState(0);
   const [dislikesCount, setDislikesCount] = useState(0);
 
   const chimedRef = useRef(false);
   const intervalRef = useRef<number | null>(null);
-  const votingIntervalRef = useRef<number | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const modeRef = useRef(mode);
   const endsAtRef = useRef<number | null>(null);
-  const votingEndsAtRef = useRef<number | null>(null);
   const stageTeamIdRef = useRef<string | null>(null);
   const stageRef = useRef<StageSelection | null>(null);
   const votingOpenRef = useRef(false);
+  const likesRef = useRef(0);
+  const dislikesRef = useRef(0);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -251,13 +253,6 @@ export function LiveTimerHost({
     if (intervalRef.current !== null) {
       window.clearInterval(intervalRef.current);
       intervalRef.current = null;
-    }
-  };
-
-  const clearVotingTick = () => {
-    if (votingIntervalRef.current !== null) {
-      window.clearInterval(votingIntervalRef.current);
-      votingIntervalRef.current = null;
     }
   };
 
@@ -393,10 +388,23 @@ export function LiveTimerHost({
         setStage(selection);
         setLikesCount(Number(idea?.likes_count ?? 0));
         setDislikesCount(Number(idea?.dislikes_count ?? 0));
+        // Close any prior voting window when advancing to the next team.
+        if (votingOpenRef.current) {
+          try {
+            await setSessionVotingState({
+              sessionId,
+              votingOpen: false,
+            });
+          } catch (err) {
+            console.warn("[pitch-select] failed to close prior voting", err);
+          }
+          void broadcastTimerEvent(channelRef.current, "VOTING_CLOSED", {
+            teamId: normalizeTeamId(chosen.id),
+            likesCount: likesRef.current,
+            dislikesCount: dislikesRef.current,
+          });
+        }
         setVotingOpen(false);
-        setVotingRemaining(0);
-        clearVotingTick();
-        votingEndsAtRef.current = null;
         broadcastPitchSelected(selection);
       } catch (err) {
         console.error("[pitch-select] unexpected error in pickNextTeamAndPitcher", err);
@@ -406,12 +414,75 @@ export function LiveTimerHost({
       }
     });
   }, [
+    sessionId,
     sortedTeams,
     pitchedTeamIds,
     fetchRoster,
     fetchFinalIdea,
     broadcastPitchSelected,
   ]);
+
+  const openVoting = useCallback(() => {
+    startVotingTransition(async () => {
+      try {
+        setPickError(null);
+        const current = stageRef.current;
+        if (!current) {
+          setPickError("ჯერ აირჩიეთ გუნდი & პრეზენტატორი");
+          return;
+        }
+
+        const teamId = normalizeTeamId(current.team.id);
+        await setSessionVotingState({
+          sessionId,
+          votingOpen: true,
+          votingTeamId: teamId,
+        });
+
+        setVotingOpen(true);
+        const teamName = hostTeamTitle(current.team.team_number, current.team.name);
+        void broadcastTimerEvent(channelRef.current, "VOTING_OPENED", {
+          teamId,
+          teamName,
+          teamColor: current.team.color,
+          likesCount: likesRef.current,
+          dislikesCount: dislikesRef.current,
+        });
+      } catch (err) {
+        console.error("[voting] open failed", err);
+        setPickError(
+          err instanceof Error ? err.message : "ხმის მიცემის გახსნა ვერ მოხერხდა"
+        );
+      }
+    });
+  }, [sessionId]);
+
+  const closeVoting = useCallback(() => {
+    startVotingTransition(async () => {
+      try {
+        setPickError(null);
+        const current = stageRef.current;
+        const teamId = current ? normalizeTeamId(current.team.id) : "";
+
+        await setSessionVotingState({
+          sessionId,
+          votingOpen: false,
+        });
+
+        setVotingOpen(false);
+        void broadcastTimerEvent(channelRef.current, "VOTING_CLOSED", {
+          teamId,
+          likesCount: likesRef.current,
+          dislikesCount: dislikesRef.current,
+        });
+      } catch (err) {
+        console.error("[voting] close failed", err);
+        setPickError(
+          err instanceof Error ? err.message : "ხმის მიცემის დახურვა ვერ მოხერხდა"
+        );
+      }
+    });
+  }, [sessionId]);
 
   const rerollPitcher = useCallback(() => {
     startPick(async () => {
@@ -475,13 +546,16 @@ export function LiveTimerHost({
         likesCount,
         dislikesCount,
         pitchSecondsRemaining: mode === "pitch" ? remaining : MODE_SECONDS.pitch,
-        votingSecondsRemaining: votingRemaining,
+        votingSecondsRemaining: 0,
         votingOpen,
         pitchLive: mode === "pitch" && running && !votingOpen,
       },
       onDeclineAndRerollPitcher: rerollPitcher,
+      onOpenVoting: openVoting,
+      onCloseVoting: closeVoting,
       rerollPending: pickPending,
-      rerollDisabled: pickPending || votingOpen,
+      votingPending,
+      rerollDisabled: pickPending || votingOpen || votingPending,
     });
   }, [
     onProjectionChange,
@@ -491,16 +565,16 @@ export function LiveTimerHost({
     likesCount,
     dislikesCount,
     remaining,
-    votingRemaining,
     votingOpen,
     mode,
     running,
     rerollPitcher,
+    openVoting,
+    closeVoting,
     pickPending,
+    votingPending,
   ]);
 
-  const likesRef = useRef(likesCount);
-  const dislikesRef = useRef(dislikesCount);
   useEffect(() => {
     likesRef.current = likesCount;
     dislikesRef.current = dislikesCount;
@@ -512,11 +586,6 @@ export function LiveTimerHost({
         setPickError("ჯერ აირჩიეთ გუნდი & პრეზენტატორი");
         return;
       }
-
-      setVotingOpen(false);
-      setVotingRemaining(0);
-      clearVotingTick();
-      votingEndsAtRef.current = null;
 
       const secs = seconds ?? MODE_SECONDS[next];
       const endsAt = Date.now() + secs * 1000;
@@ -610,51 +679,13 @@ export function LiveTimerHost({
       void broadcastTimerEvent(channelRef.current, "PITCH_EXPIRED", {
         targetTeamId,
       });
-
-      const current = stageRef.current;
-      if (current && !votingOpenRef.current) {
-        clearVotingTick();
-        const endsAt = Date.now() + VOTING_SECONDS * 1000;
-        votingEndsAtRef.current = endsAt;
-        setVotingOpen(true);
-        setVotingRemaining(VOTING_SECONDS);
-
-        const teamName = hostTeamTitle(current.team.team_number, current.team.name);
-        void broadcastTimerEvent(channelRef.current, "VOTING_OPENED", {
-          teamId: current.team.id,
-          teamName,
-          teamColor: current.team.color,
-          secondsRemaining: VOTING_SECONDS,
-          endsAt,
-          likesCount: likesRef.current,
-          dislikesCount: dislikesRef.current,
-        });
-
-        votingIntervalRef.current = window.setInterval(() => {
-          const end = votingEndsAtRef.current;
-          if (end == null) return;
-          const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
-          setVotingRemaining(left);
-          if (left <= 0) {
-            clearVotingTick();
-            votingEndsAtRef.current = null;
-            setVotingOpen(false);
-            setVotingRemaining(0);
-            void broadcastTimerEvent(channelRef.current, "VOTING_CLOSED", {
-              teamId: current.team.id,
-              likesCount: likesRef.current,
-              dislikesCount: dislikesRef.current,
-            });
-          }
-        }, 250);
-      }
+      // Voting does NOT open automatically — mentor must press Open Voting.
     }
   }, [remaining, running]);
 
   useEffect(() => {
     return () => {
       clearTick();
-      clearVotingTick();
     };
   }, []);
 
@@ -663,10 +694,6 @@ export function LiveTimerHost({
     setRunning(false);
     setRemaining(duration);
     chimedRef.current = false;
-    setVotingOpen(false);
-    setVotingRemaining(0);
-    clearVotingTick();
-    votingEndsAtRef.current = null;
     void broadcastTimerEvent(channelRef.current, "TIMER_RESET", {
       mode,
       secondsRemaining: duration,
@@ -689,19 +716,19 @@ export function LiveTimerHost({
     setDeclinedPitcherUids([]);
     setPickError(null);
     setVotingOpen(false);
-    setVotingRemaining(0);
     setLikesCount(0);
     setDislikesCount(0);
-    clearVotingTick();
-    votingEndsAtRef.current = null;
+    void setSessionVotingState({ sessionId, votingOpen: false }).catch((err) => {
+      console.warn("[pitch-queue] failed to clear voting state", err);
+    });
   };
 
   const size = 120;
   const stroke = 8;
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
-  const displayRemaining = votingOpen ? votingRemaining : remaining;
-  const displayProgress = votingOpen ? votingRemaining / VOTING_SECONDS : progress;
+  const displayRemaining = remaining;
+  const displayProgress = progress;
   const dashOffset = circumference * (1 - displayProgress);
 
   return (
@@ -779,12 +806,35 @@ export function LiveTimerHost({
             <button
               type="button"
               onClick={rerollPitcher}
-              disabled={pickPending || votingOpen}
+              disabled={pickPending || votingOpen || votingPending}
               className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-rose-400/40 bg-rose-500/15 px-3 py-2.5 font-[family-name:var(--font-noto-georgian)] text-xs font-black text-rose-100 transition hover:bg-rose-500/25 disabled:cursor-not-allowed disabled:opacity-50 xl:text-sm"
             >
               ❌ უარი თქვა ➔ 🎲 სხვა წევრის ამოგდება
               <span className="hidden xl:inline">(Re-roll Pitcher)</span>
             </button>
+
+            <div className="mt-3 grid grid-cols-1 gap-2">
+              <button
+                type="button"
+                onClick={openVoting}
+                disabled={!stage || votingOpen || votingPending}
+                className="flex min-h-11 w-full items-center justify-center rounded-xl bg-sky-500 px-3 py-2.5 font-[family-name:var(--font-noto-georgian)] text-xs font-black text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50 xl:text-sm"
+              >
+                {votingPending && !votingOpen
+                  ? "იხსნება…"
+                  : "🗳️ ხმის მიცემის გახსნა (Open Voting)"}
+              </button>
+              <button
+                type="button"
+                onClick={closeVoting}
+                disabled={!votingOpen || votingPending}
+                className="flex min-h-11 w-full items-center justify-center rounded-xl border border-slate-500 bg-slate-800 px-3 py-2.5 font-[family-name:var(--font-noto-georgian)] text-xs font-black text-slate-100 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50 xl:text-sm"
+              >
+                {votingPending && votingOpen
+                  ? "იხურება…"
+                  : "🔒 ხმის მიცემის დახურვა (Close Voting)"}
+              </button>
+            </div>
           </div>
         ) : null}
 

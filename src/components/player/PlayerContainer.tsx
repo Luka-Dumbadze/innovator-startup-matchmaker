@@ -8,6 +8,7 @@ import {
   assignPlayerAtomically,
   createBrowserSupabaseClient,
 } from "@/lib/supabase/client";
+import { toDailySession } from "@/lib/supabase/types";
 import {
   getOrCreatePlayerUid,
   getPlayerProfile,
@@ -113,7 +114,7 @@ async function fetchActiveSession(): Promise<DailySession | null> {
     throw new Error(sessionError.message);
   }
 
-  return session;
+  return session ? toDailySession(session) : null;
 }
 
 async function assignWithProfile(
