@@ -107,46 +107,27 @@ export const GEORGIAN_PRESET_WORDS: readonly string[] = [
   ...MATERIALS_AND_ELEMENTS,
 ] as const;
 
-function shuffleInPlace<T>(items: T[]): T[] {
-  for (let i = items.length - 1; i > 0; i -= 1) {
+function shuffleArray<T>(array: T[]): T[] {
+  const arr = [...array];
+  for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    const tmp = items[i]!;
-    items[i] = items[j]!;
-    items[j] = tmp;
+    [arr[i], arr[j]] = [arr[j]!, arr[i]!];
   }
-  return items;
-}
-
-/** Unique strings drawn from a bank (falls back to cycling if bank is short). */
-function pickUniqueFromBank(bank: readonly string[], count: number): string[] {
-  const uniqueBank = [...new Set(bank)];
-  const pool = shuffleInPlace([...uniqueBank]);
-  const picked: string[] = [];
-
-  while (picked.length < count) {
-    if (pool.length === 0) {
-      pool.push(...shuffleInPlace([...uniqueBank]));
-    }
-    const next = pool.pop()!;
-    if (!picked.includes(next) || picked.length >= uniqueBank.length) {
-      picked.push(next);
-    }
-  }
-
-  return picked;
+  return arr;
 }
 
 /**
  * Returns 8 team configs with fixed color presets and the structured formula:
  * 1 Global Challenge + 1 Physical Object + 1 Tech Driver + 1 Material / Element.
  *
- * Each category uses unique words across all 8 teams (no duplicates within a session).
+ * Each pool is independently Fisher-Yates shuffled on every call; teams 1–8 receive
+ * the 1st–8th shuffled items (no duplicates within a category per session).
  */
 export function generateRandomPresets(): TeamPresetConfig[] {
-  const challenges = pickUniqueFromBank(GLOBAL_CHALLENGES, 8);
-  const physical = pickUniqueFromBank(PHYSICAL_OBJECTS, 8);
-  const tech = pickUniqueFromBank(TECH_DRIVERS, 8);
-  const materials = pickUniqueFromBank(MATERIALS_AND_ELEMENTS, 8);
+  const challenges = shuffleArray([...GLOBAL_CHALLENGES]).slice(0, 8);
+  const physical = shuffleArray([...PHYSICAL_OBJECTS]);
+  const tech = shuffleArray([...TECH_DRIVERS]);
+  const materials = shuffleArray([...MATERIALS_AND_ELEMENTS]);
 
   return TEAM_COLOR_PRESETS.map((preset, index) => ({
     teamNumber: index + 1,

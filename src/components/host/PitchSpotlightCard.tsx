@@ -184,9 +184,15 @@ export function PitchSpotlightCard({
         <div className="flex items-center justify-center gap-8 rounded-2xl bg-slate-950/90 px-6 py-5 ring-1 ring-slate-700">
           <div className="flex items-center gap-3 text-emerald-300">
             <ThumbsUp className="size-8 xl:size-10" />
-            <span className="font-mono text-4xl font-black tabular-nums xl:text-5xl">
+            <motion.span
+              key={`likes-${likesCount}`}
+              initial={{ scale: 1.35, opacity: 0.7 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: "spring", stiffness: 320, damping: 18 }}
+              className="font-mono text-4xl font-black tabular-nums xl:text-5xl"
+            >
               {likesCount}
-            </span>
+            </motion.span>
             <span className="font-[family-name:var(--font-noto-georgian)] text-sm font-bold xl:text-base">
               👍 Likes
             </span>
@@ -194,9 +200,15 @@ export function PitchSpotlightCard({
           <div className="h-12 w-px bg-slate-700" />
           <div className="flex items-center gap-3 text-rose-300">
             <ThumbsDown className="size-8 xl:size-10" />
-            <span className="font-mono text-4xl font-black tabular-nums xl:text-5xl">
+            <motion.span
+              key={`dislikes-${dislikesCount}`}
+              initial={{ scale: 1.35, opacity: 0.7 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: "spring", stiffness: 320, damping: 18 }}
+              className="font-mono text-4xl font-black tabular-nums xl:text-5xl"
+            >
               {dislikesCount}
-            </span>
+            </motion.span>
             <span className="font-[family-name:var(--font-noto-georgian)] text-sm font-bold xl:text-base">
               👎 Dislikes
             </span>

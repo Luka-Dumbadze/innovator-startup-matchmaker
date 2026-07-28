@@ -6,6 +6,10 @@ const assignmentKey = (sessionId: string) => `smm_assignment:${sessionId}`;
 const notesKey = (sessionId: string) => `smm_idea_notes:${sessionId}`;
 const foundationKey = (sessionId: string) => `smm_team_foundation:${sessionId}`;
 const submittedKey = (sessionId: string) => `smm_submitted_pitch:${sessionId}`;
+const pitchVoteKey = (sessionId: string, teamId: string, voterUid: string) =>
+  `smm_pitch_vote:${sessionId}:${teamId}:${voterUid}`;
+
+export type StoredPitchVote = "like" | "dislike";
 
 export const IDEA_FIELD_MAX = 140;
 
@@ -178,6 +182,27 @@ export function markPitchSubmitted(sessionId: string): void {
 export function isPitchSubmitted(sessionId: string): boolean {
   if (!canUseStorage() || !sessionId) return false;
   return window.localStorage.getItem(submittedKey(sessionId)) === "1";
+}
+
+/** Persist audience like/dislike for a specific team pitch (survives reload). */
+export function getStoredPitchVote(
+  sessionId: string,
+  teamId: string,
+  voterUid: string
+): StoredPitchVote | null {
+  if (!canUseStorage() || !sessionId || !teamId || !voterUid) return null;
+  const raw = window.localStorage.getItem(pitchVoteKey(sessionId, teamId, voterUid));
+  return raw === "like" || raw === "dislike" ? raw : null;
+}
+
+export function saveStoredPitchVote(
+  sessionId: string,
+  teamId: string,
+  voterUid: string,
+  voteType: StoredPitchVote
+): void {
+  if (!canUseStorage() || !sessionId || !teamId || !voterUid) return;
+  window.localStorage.setItem(pitchVoteKey(sessionId, teamId, voterUid), voteType);
 }
 
 /** Formats structured idea + global challenge + 3 tools into a pitch sentence. */

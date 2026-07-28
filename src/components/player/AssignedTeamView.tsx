@@ -305,14 +305,20 @@ export function AssignedTeamView({
     pitcherHeroDismissedFor !== pitcherSelectionKey;
 
   const voting = timer.voting;
+  const activePitchTeamId =
+    timer.activePitchTeamId ?? pitchSelection?.teamId ?? null;
   const showAudienceVote =
-    !!voting &&
-    voting.open &&
-    voting.teamId !== team.id &&
-    voting.secondsRemaining > 0;
+    !!pitchSelection &&
+    !!activePitchTeamId &&
+    team.id !== activePitchTeamId &&
+    (timer.mode === "pitch" || voting?.open === true);
 
   return (
-    <div className="mx-auto w-full max-w-md space-y-5 px-4 py-6 pb-10">
+    <div
+      className={`mx-auto w-full max-w-md space-y-5 px-4 pb-10 ${
+        showAudienceVote ? "pt-36" : "py-6"
+      }`}
+    >
       <motion.header
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -522,15 +528,16 @@ export function AssignedTeamView({
       </AnimatePresence>
 
       <AnimatePresence>
-        {showAudienceVote && voting ? (
+        {showAudienceVote && pitchSelection && activePitchTeamId ? (
           <VotingCard
-            key={`vote-${voting.teamId}`}
+            key={`vote-${session.id}-${activePitchTeamId}-${playerUid}`}
             sessionId={session.id}
-            teamId={voting.teamId}
-            teamName={voting.teamName}
-            teamColor={voting.teamColor}
+            teamId={activePitchTeamId}
+            teamName={pitchSelection.teamName}
+            teamColor={pitchSelection.teamColor}
             voterUid={playerUid}
-            secondsRemaining={voting.secondsRemaining}
+            secondsRemaining={voting?.secondsRemaining ?? timer.secondsRemaining}
+            votingOpen={voting?.open === true}
           />
         ) : null}
       </AnimatePresence>
