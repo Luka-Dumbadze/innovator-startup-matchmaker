@@ -1,11 +1,17 @@
 "use client";
 
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { Radio, AlertTriangle, ExternalLink } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 
 import { useRealtimeHostSession } from "@/hooks/useRealtimeHostSession";
 import { QRCodeHostCard } from "@/components/host/QRCodeHostCard";
-import { LiveTimerHost } from "@/components/host/LiveTimerHost";
+import {
+  LiveTimerHost,
+  type PitchProjectionState,
+} from "@/components/host/LiveTimerHost";
+import { PitchSpotlightCard } from "@/components/host/PitchSpotlightCard";
 
 export function HostDashboardSkeleton() {
   return (
@@ -53,6 +59,14 @@ function HostEmptyState({ error }: { error?: string | null }) {
 export function HostDashboard() {
   const { session, teams, totalJoined, totalCapacity, loading, error } =
     useRealtimeHostSession();
+  const [projection, setProjection] = useState<PitchProjectionState>({
+    active: false,
+    spotlight: null,
+  });
+
+  const onProjectionChange = useCallback((state: PitchProjectionState) => {
+    setProjection(state);
+  }, []);
 
   if (loading) {
     return <HostDashboardSkeleton />;
@@ -61,6 +75,8 @@ export function HostDashboard() {
   if (!session) {
     return <HostEmptyState error={error} />;
   }
+
+  const pitchSpotlightActive = projection.active && projection.spotlight;
 
   return (
     <div className="relative flex h-screen flex-col overflow-hidden bg-slate-950 text-white">
@@ -88,13 +104,47 @@ export function HostDashboard() {
         </span>
       </header>
 
-      <main className="relative z-10 grid min-h-0 flex-1 gap-4 p-4 xl:grid-cols-2 xl:gap-6 xl:p-6">
+      <main
+        className={`relative z-10 grid min-h-0 flex-1 gap-4 p-4 xl:gap-6 xl:p-6 ${
+          pitchSpotlightActive ? "xl:grid-cols-[1fr_22rem]" : "xl:grid-cols-2"
+        }`}
+      >
         <section className="min-h-0">
-          <QRCodeHostCard totalJoined={totalJoined} totalCapacity={totalCapacity || 40} />
+          <AnimatePresence mode="wait">
+            {pitchSpotlightActive && projection.spotlight ? (
+              <motion.div
+                key="pitch-spotlight"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="h-full"
+              >
+                <PitchSpotlightCard data={projection.spotlight} />
+              </motion.div>
+            ) : (
+              <motion.div
+                key="qr-join"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="h-full"
+              >
+                <QRCodeHostCard
+                  totalJoined={totalJoined}
+                  totalCapacity={totalCapacity || 40}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
         </section>
 
         <aside className="min-h-0">
-          <LiveTimerHost sessionId={session.id} teams={teams} className="h-full" />
+          <LiveTimerHost
+            sessionId={session.id}
+            teams={teams}
+            className="h-full"
+            onProjectionChange={onProjectionChange}
+          />
         </aside>
       </main>
     </div>

@@ -1,13 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { Pause, RotateCcw, Timer, Mic2, Dices, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Pause, RotateCcw, Timer, Dices } from "lucide-react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { hostTeamTitle } from "@/lib/constants/host-labels";
-import { TOOL_SLOT_META } from "@/lib/constants/preset-words";
 import {
   MODE_SECONDS,
   VOTING_SECONDS,
@@ -18,6 +16,8 @@ import {
   type TimerMode,
 } from "@/lib/timer/session-timer";
 import type { Team } from "@/types/game";
+
+import type { PitchSpotlightData } from "@/components/host/PitchSpotlightCard";
 
 /** Short descending chime via Web Audio API (host local feedback). */
 function playChime(): void {
@@ -87,16 +87,23 @@ type StageSelection = {
   pitchedCount: number;
 };
 
+export type PitchProjectionState = {
+  active: boolean;
+  spotlight: PitchSpotlightData | null;
+};
+
 type LiveTimerHostProps = {
   sessionId: string;
   teams: Team[];
   className?: string;
+  onProjectionChange?: (state: PitchProjectionState) => void;
 };
 
 export function LiveTimerHost({
   sessionId,
   teams,
   className = "",
+  onProjectionChange,
 }: LiveTimerHostProps) {
   const sortedTeams = useMemo(
     () => [...teams].sort((a, b) => a.team_number - b.team_number),
@@ -142,6 +149,13 @@ export function LiveTimerHost({
     votingOpenRef.current = votingOpen;
   }, [votingOpen]);
 
+  const activeTeam = useMemo(() => {
+    if (!stage) return null;
+    return sortedTeams.find((t) => t.id === stage.team.id) ?? stage.team;
+  }, [stage, sortedTeams]);
+
+  const pitchProjectionActive = !!stage && !!activeTeam;
+
   const duration = MODE_SECONDS[mode];
   const progress = remaining / duration;
   const isUrgent = remaining > 0 && remaining <= 10;
@@ -156,6 +170,44 @@ export function LiveTimerHost({
     if (progress <= 0.33) return "#eab308";
     return "#22c55e";
   }, [isDone, isUrgent, progress, votingOpen]);
+
+  useEffect(() => {
+    if (!onProjectionChange) return;
+
+    if (!pitchProjectionActive) {
+      onProjectionChange({ active: false, spotlight: null });
+      return;
+    }
+
+    onProjectionChange({
+      active: true,
+      spotlight: {
+        team: activeTeam,
+        pitcherNickname: stage.pitcherNickname,
+        startupName: stage.startupName,
+        solution: stage.solution,
+        toolsIntegration: stage.tools,
+        likesCount,
+        dislikesCount,
+        pitchSecondsRemaining: mode === "pitch" ? remaining : MODE_SECONDS.pitch,
+        votingSecondsRemaining: votingRemaining,
+        votingOpen,
+        pitchLive: mode === "pitch" && running && !votingOpen,
+      },
+    });
+  }, [
+    onProjectionChange,
+    stage,
+    activeTeam,
+    pitchProjectionActive,
+    likesCount,
+    dislikesCount,
+    remaining,
+    votingRemaining,
+    votingOpen,
+    mode,
+    running,
+  ]);
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
@@ -176,7 +228,6 @@ export function LiveTimerHost({
     };
   }, [sessionId]);
 
-  // Live vote tallies from submitted_ideas updates.
   useEffect(() => {
     if (!stage) return;
     const teamId = stage.team.id;
@@ -394,9 +445,10 @@ export function LiveTimerHost({
         const candidates = roster.filter(
           (m) => !triedPitcherUids.includes(m.player_uid)
         );
-        const pool = candidates.length > 0 ? candidates : roster.filter(
-          (m) => m.player_uid !== current.pitcherUid
-        );
+        const pool =
+          candidates.length > 0
+            ? candidates
+            : roster.filter((m) => m.player_uid !== current.pitcherUid);
 
         if (pool.length === 0) {
           setPickError("სხვა პრეზენტატორი ამ გუნდში არ არის");
@@ -542,7 +594,6 @@ export function LiveTimerHost({
         targetTeamId,
       });
 
-      // Open 15s audience voting window for this pitch.
       const current = stageRef.current;
       if (current && !votingOpenRef.current) {
         clearVotingTick();
@@ -628,14 +679,12 @@ export function LiveTimerHost({
     votingEndsAtRef.current = null;
   };
 
-  const size = 148;
-  const stroke = 10;
+  const size = 120;
+  const stroke = 8;
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const displayRemaining = votingOpen ? votingRemaining : remaining;
-  const displayProgress = votingOpen
-    ? votingRemaining / VOTING_SECONDS
-    : progress;
+  const displayProgress = votingOpen ? votingRemaining / VOTING_SECONDS : progress;
   const dashOffset = circumference * (1 - displayProgress);
 
   return (
@@ -645,7 +694,7 @@ export function LiveTimerHost({
       <div className="flex shrink-0 items-center justify-between gap-2">
         <div className="flex items-center gap-2 font-[family-name:var(--font-noto-georgian)] text-sm font-bold tracking-wide text-slate-200">
           <Timer className="size-4 text-teal-300" />
-          ⏱️ ტაიმერი
+          ⏱️ მენტორის პანელი
         </div>
         <span
           className={`size-2 rounded-full ${channelReady ? "bg-emerald-400" : "bg-slate-600"}`}
@@ -681,9 +730,7 @@ export function LiveTimerHost({
           className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-amber-400 px-3 py-2.5 font-[family-name:var(--font-noto-georgian)] text-sm font-black text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Dices className="size-4" />
-          {pickPending
-            ? "ირჩევა…"
-            : "🎲 შემდეგი გუნდის & პრეზენტატორის არჩევა"}
+          {pickPending ? "ირჩევა…" : "🎲 შემდეგი გუნდის & პრეზენტატორის არჩევა"}
         </button>
 
         <div>
@@ -693,11 +740,10 @@ export function LiveTimerHost({
               {pitchedCount} / {totalTeams} გუნდი
             </span>
           </div>
-          <div className="h-2.5 overflow-hidden rounded-full bg-slate-950/80 ring-1 ring-amber-400/30">
-            <motion.div
-              className="h-full rounded-full bg-amber-400"
-              animate={{ width: `${progressRatio * 100}%` }}
-              transition={{ type: "spring", stiffness: 120, damping: 20 }}
+          <div className="h-2 overflow-hidden rounded-full bg-slate-950/80 ring-1 ring-amber-400/30">
+            <div
+              className="h-full rounded-full bg-amber-400 transition-all duration-300"
+              style={{ width: `${progressRatio * 100}%` }}
             />
           </div>
           <p className="mt-1 font-[family-name:var(--font-noto-georgian)] text-[11px] text-amber-100/80">
@@ -705,13 +751,33 @@ export function LiveTimerHost({
           </p>
         </div>
 
+        {stage ? (
+          <div className="rounded-lg bg-slate-950/70 px-3 py-2 ring-1 ring-emerald-500/30">
+            <p className="font-[family-name:var(--font-noto-georgian)] text-xs font-bold text-emerald-200">
+              🎤 აქტიური: {hostTeamTitle(stage.team.team_number, stage.team.name)}
+            </p>
+            <p className="mt-0.5 text-[11px] text-slate-400">
+              {stage.pitcherNickname}
+            </p>
+            <button
+              type="button"
+              onClick={rerollPitcher}
+              disabled={pickPending || votingOpen || running}
+              className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-amber-200 underline-offset-2 hover:underline disabled:opacity-40"
+            >
+              <Dices className="size-3" />
+              🎲 Re-roll Pitcher
+            </button>
+          </div>
+        ) : null}
+
         {stage?.nextUpTeam ? (
           <div
             className="flex items-center gap-2 rounded-lg bg-slate-950/70 px-3 py-2 ring-1 ring-slate-600"
             style={{ borderLeft: `4px solid ${stage.nextUpTeam.color}` }}
           >
             <span className="font-[family-name:var(--font-noto-georgian)] text-xs font-bold text-slate-200">
-              ⏭️ შემდეგი გუნდი (Next Up):{" "}
+              ⏭️ Next Up:{" "}
               {hostTeamTitle(stage.nextUpTeam.team_number, stage.nextUpTeam.name)}
             </span>
           </div>
@@ -739,15 +805,15 @@ export function LiveTimerHost({
       </div>
 
       <p className="shrink-0 text-center font-[family-name:var(--font-noto-georgian)] text-sm font-semibold text-slate-400">
-        {votingOpen ? "🗳️ ხმის მიცემა (15 წმ)" : MODE_LABELS_KA[mode]}
+        {votingOpen ? "🗳️ ხმის მიცემა" : MODE_LABELS_KA[mode]}
         {running || votingOpen ? (
           <span className="ml-2 rounded-full bg-rose-500/20 px-2 py-0.5 text-[10px] font-bold tracking-wide text-rose-200">
-            პირდაპირ
+            LIVE
           </span>
         ) : null}
       </p>
 
-      <div className="relative mx-auto flex size-[148px] shrink-0 items-center justify-center">
+      <div className="relative mx-auto flex size-[120px] shrink-0 items-center justify-center">
         <svg width={size} height={size} className="-rotate-90">
           <circle
             cx={size / 2}
@@ -757,7 +823,7 @@ export function LiveTimerHost({
             stroke="#1e293b"
             strokeWidth={stroke}
           />
-          <motion.circle
+          <circle
             cx={size / 2}
             cy={size / 2}
             r={radius}
@@ -766,39 +832,20 @@ export function LiveTimerHost({
             strokeWidth={stroke}
             strokeLinecap="round"
             strokeDasharray={circumference}
-            animate={{
-              strokeDashoffset: dashOffset,
-              opacity: isUrgent && !votingOpen ? [1, 0.45, 1] : 1,
-            }}
-            transition={
-              isUrgent && !votingOpen
-                ? { opacity: { duration: 0.55, repeat: Infinity }, strokeDashoffset: { duration: 0.35 } }
-                : { strokeDashoffset: { duration: 0.35 } }
-            }
+            strokeDashoffset={dashOffset}
           />
         </svg>
-        <motion.p
-          className={`absolute font-mono text-5xl font-black tracking-tight tabular-nums ${
+        <p
+          className={`absolute font-mono text-4xl font-black tabular-nums ${
             votingOpen
               ? "text-sky-300"
               : isUrgent || isDone
                 ? "text-rose-400"
                 : "text-white"
           }`}
-          animate={isUrgent && !votingOpen ? { scale: [1, 1.06, 1] } : { scale: 1 }}
-          transition={isUrgent && !votingOpen ? { duration: 0.55, repeat: Infinity } : undefined}
         >
           {formatTimerClock(displayRemaining)}
-        </motion.p>
-      </div>
-
-      <div className="h-2 shrink-0 overflow-hidden rounded-full bg-slate-800">
-        <motion.div
-          className="h-full rounded-full"
-          style={{ backgroundColor: ringColor }}
-          animate={{ width: `${displayProgress * 100}%` }}
-          transition={{ width: { duration: 0.3 } }}
-        />
+        </p>
       </div>
 
       <div className="flex shrink-0 items-center justify-center gap-2">
@@ -820,134 +867,6 @@ export function LiveTimerHost({
           🔄 გადატვირთვა
         </button>
       </div>
-
-      <AnimatePresence>
-        {stage ? (
-          <motion.section
-            key={stage.team.id}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 8 }}
-            className="min-h-0 flex-1 overflow-auto rounded-2xl border border-amber-400/40 bg-gradient-to-b from-amber-500/20 to-slate-950/95 p-4 shadow-[0_0_40px_-12px_rgba(251,191,36,0.45)]"
-            style={{ borderTopWidth: 5, borderTopColor: stage.team.color }}
-          >
-            <div className="mb-3 flex items-start justify-between gap-2">
-              <div>
-                <p className="inline-flex items-center gap-1.5 text-[10px] font-bold tracking-[0.14em] text-amber-300 uppercase">
-                  <Mic2 className="size-3.5" />
-                  Live Pitch Projection
-                </p>
-                <p className="mt-1 font-[family-name:var(--font-noto-georgian)] text-lg font-black text-white xl:text-xl">
-                  {hostTeamTitle(stage.team.team_number, stage.team.name)}
-                </p>
-              </div>
-              <span
-                className="size-4 shrink-0 rounded-full ring-2 ring-white/30"
-                style={{ backgroundColor: stage.team.color }}
-              />
-            </div>
-
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <div className="min-w-0 flex-1 rounded-xl bg-emerald-500/15 px-3 py-2 ring-1 ring-emerald-400/40">
-                <p className="font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-emerald-200">
-                  🎤 პრეზენტატორი: {stage.pitcherNickname}
-                </p>
-                <p className="mt-0.5 text-xs text-emerald-100/80">
-                  {stage.pitcherRealName}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={rerollPitcher}
-                disabled={pickPending || votingOpen || running}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-slate-900 px-3 py-2.5 font-[family-name:var(--font-noto-georgian)] text-xs font-bold text-amber-200 ring-1 ring-amber-400/40 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Dices className="size-3.5" />
-                🎲 Re-roll Pitcher
-                <span className="hidden xl:inline">(ახალი პრეზენტატორი)</span>
-              </button>
-            </div>
-
-            <div className="mb-4 flex items-center justify-center gap-4 rounded-xl bg-slate-950/80 px-4 py-3 ring-1 ring-slate-700">
-              <div className="flex items-center gap-2 text-emerald-300">
-                <ThumbsUp className="size-5" />
-                <span className="font-mono text-2xl font-black tabular-nums">
-                  {likesCount}
-                </span>
-                <span className="font-[family-name:var(--font-noto-georgian)] text-xs font-bold">
-                  👍 Likes
-                </span>
-              </div>
-              <div className="h-8 w-px bg-slate-700" />
-              <div className="flex items-center gap-2 text-rose-300">
-                <ThumbsDown className="size-5" />
-                <span className="font-mono text-2xl font-black tabular-nums">
-                  {dislikesCount}
-                </span>
-                <span className="font-[family-name:var(--font-noto-georgian)] text-xs font-bold">
-                  👎 Dislikes
-                </span>
-              </div>
-            </div>
-
-            {votingOpen ? (
-              <p className="mb-3 text-center font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-sky-300">
-                🗳️ ხმის მიცემა ღიაა · {formatTimerClock(votingRemaining)}
-              </p>
-            ) : null}
-
-            <div className="space-y-3">
-              <div>
-                <p className="text-[10px] font-bold tracking-wide text-slate-500 uppercase">
-                  Startup
-                </p>
-                <p className="text-2xl font-black leading-tight text-white xl:text-4xl">
-                  {stage.startupName}
-                </p>
-              </div>
-              <div className="rounded-xl border border-indigo-500/30 bg-indigo-950/70 px-3 py-2">
-                <p className="text-[10px] font-bold text-indigo-200 uppercase">
-                  🌍 გამოწვევა
-                </p>
-                <p className="font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-amber-300">
-                  {stage.team.domain || "—"}
-                </p>
-              </div>
-              <div>
-                <p className="text-[10px] font-bold tracking-wide text-slate-500 uppercase">
-                  1-Sentence Solution
-                </p>
-                <p className="font-[family-name:var(--font-noto-georgian)] text-base leading-relaxed text-slate-100 xl:text-xl">
-                  {stage.solution}
-                </p>
-              </div>
-              <div>
-                <p className="mb-1.5 text-[10px] font-bold tracking-wide text-slate-500 uppercase">
-                  3 Innovation Tools
-                </p>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {TOOL_SLOT_META.map((slot, i) => (
-                    <div
-                      key={slot.label}
-                      className="rounded-lg bg-slate-950/80 px-2 py-2 text-center ring-1 ring-slate-700"
-                    >
-                      <p className="text-xs" aria-hidden>
-                        {slot.icon}
-                      </p>
-                      <p className="mt-1 font-[family-name:var(--font-noto-georgian)] text-xs font-semibold text-teal-200 xl:text-sm">
-                        {stage.team.words[i] ?? "—"}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-                <p className="mt-2 font-[family-name:var(--font-noto-georgian)] text-sm text-slate-300">
-                  {stage.tools}
-                </p>
-              </div>
-            </div>
-          </motion.section>
-        ) : null}
-      </AnimatePresence>
     </div>
   );
 }
