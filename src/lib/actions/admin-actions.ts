@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { fetchLatestActiveSession } from "@/lib/supabase/active-session";
 import { createAdminSupabaseClient } from "@/lib/supabase/server";
 import { toDailySession } from "@/lib/supabase/types";
 import type {
@@ -99,6 +100,10 @@ function validateTeams(teams: TeamDraftInput[]): void {
   }
 }
 
+/**
+ * Only admin session lifecycle actions may clear `is_active`. Timer, pitch and
+ * voting flows must never write this column.
+ */
 async function deactivateAllSessions(): Promise<void> {
   const supabase = createAdminSupabaseClient();
   const { error } = await supabase
@@ -310,15 +315,10 @@ export async function resetSessionAssignments(
 export async function getActiveSessionSnapshot(): Promise<ActiveSessionSnapshot | null> {
   const supabase = createAdminSupabaseClient();
 
-  const { data: session, error: sessionError } = await supabase
-    .from("daily_sessions")
-    .select("*")
-    .eq("is_active", true)
-    .maybeSingle();
+  // Newest active row wins — tolerates accidental multiple active sessions
+  // instead of throwing PGRST116.
+  const session = await fetchLatestActiveSession(supabase);
 
-  if (sessionError) {
-    throw new Error(sessionError.message);
-  }
   if (!session) {
     return null;
   }
@@ -336,7 +336,7 @@ export async function getActiveSessionSnapshot(): Promise<ActiveSessionSnapshot 
   const teams = (teamRows ?? []).map(mapTeam);
   const totalJoined = teams.reduce((sum, t) => sum + t.current_count, 0);
 
-  return { session: toDailySession(session), teams, totalJoined };
+  return { session, teams, totalJoined };
 }
 
 /** Chronological session list for history table. */

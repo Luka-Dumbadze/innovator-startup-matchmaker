@@ -8,7 +8,7 @@ import {
   assignPlayerAtomically,
   createBrowserSupabaseClient,
 } from "@/lib/supabase/client";
-import { toDailySession } from "@/lib/supabase/types";
+import { fetchLatestActiveSession } from "@/lib/supabase/active-session";
 import {
   getOrCreatePlayerUid,
   getPlayerProfile,
@@ -103,18 +103,7 @@ function PlayerToastStack({
 }
 
 async function fetchActiveSession(): Promise<DailySession | null> {
-  const supabase = createBrowserSupabaseClient();
-  const { data: session, error: sessionError } = await supabase
-    .from("daily_sessions")
-    .select("*")
-    .eq("is_active", true)
-    .maybeSingle();
-
-  if (sessionError) {
-    throw new Error(sessionError.message);
-  }
-
-  return session ? toDailySession(session) : null;
+  return fetchLatestActiveSession(createBrowserSupabaseClient());
 }
 
 async function assignWithProfile(

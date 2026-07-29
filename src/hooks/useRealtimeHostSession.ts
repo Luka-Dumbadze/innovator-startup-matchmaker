@@ -4,7 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
-import { toTeam, toDailySession } from "@/lib/supabase/types";
+import {
+  ACTIVE_SESSION_RECHECK_DELAY_MS,
+  fetchLatestActiveSession,
+  resolveRealtimeSessionUpdate,
+  type SessionRealtimeRow,
+} from "@/lib/supabase/active-session";
+import { toTeam } from "@/lib/supabase/types";
 import type { DailySession, Team } from "@/types/game";
 
 export type HostSessionState = {
@@ -54,6 +60,13 @@ export function useRealtimeHostSession(): HostSessionState {
 
   const pulseTimers = useRef<Map<string, number>>(new Map());
   const sessionIdRef = useRef<string | null>(null);
+  const sessionRef = useRef<DailySession | null>(null);
+  const recheckTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    sessionRef.current = session;
+    sessionIdRef.current = session?.id ?? null;
+  }, [session]);
 
   const markJoined = useCallback((teamId: string) => {
     setRecentlyJoinedTeamIds((prev) => {
@@ -79,26 +92,19 @@ export function useRealtimeHostSession(): HostSessionState {
 
   const fetchActive = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
-
-    const { data: activeSession, error: sessionError } = await supabase
-      .from("daily_sessions")
-      .select("*")
-      .eq("is_active", true)
-      .maybeSingle();
-
-    if (sessionError) {
-      throw new Error(sessionError.message);
-    }
+    const activeSession = await fetchLatestActiveSession(supabase);
 
     if (!activeSession) {
       sessionIdRef.current = null;
+      sessionRef.current = null;
       setSession(null);
       setTeams([]);
       return;
     }
 
     sessionIdRef.current = activeSession.id;
-    setSession(toDailySession(activeSession));
+    sessionRef.current = activeSession;
+    setSession(activeSession);
 
     const { data: teamRows, error: teamsError } = await supabase
       .from("teams")
@@ -121,6 +127,20 @@ export function useRealtimeHostSession(): HostSessionState {
       setError(err instanceof Error ? err.message : "Failed to load host session");
     }
   }, [fetchActive]);
+
+  /**
+   * Delayed authoritative re-query. Used when realtime hints the live session
+   * went inactive, so a newer active session can take over before the host
+   * screen falls back to the empty state.
+   */
+  const scheduleActiveSessionRecheck = useCallback(() => {
+    if (recheckTimerRef.current !== null) return;
+
+    recheckTimerRef.current = window.setTimeout(() => {
+      recheckTimerRef.current = null;
+      void refresh();
+    }, ACTIVE_SESSION_RECHECK_DELAY_MS);
+  }, [refresh]);
 
   useEffect(() => {
     let cancelled = false;
@@ -203,23 +223,6 @@ export function useRealtimeHostSession(): HostSessionState {
           }
         }
       )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "daily_sessions",
-          filter: `id=eq.${sessionId}`,
-        },
-        (payload) => {
-          const next = toDailySession(payload.new as DailySession);
-          setSession(next);
-          if (!next.is_active) {
-            // Active session flipped off — reload to pick up a new one (if any).
-            void refresh();
-          }
-        }
-      )
       .subscribe();
 
     return () => {
@@ -227,13 +230,59 @@ export function useRealtimeHostSession(): HostSessionState {
         void supabase.removeChannel(channel);
       }
     };
-  }, [session?.id, markJoined, refresh]);
+  }, [session?.id, markJoined]);
+
+  /**
+   * Session lifecycle listener (unfiltered so brand-new sessions are seen).
+   * Every payload passes through `resolveRealtimeSessionUpdate`, which never
+   * lets an inactive or older row overwrite the live session.
+   */
+  useEffect(() => {
+    const supabase = createBrowserSupabaseClient();
+
+    const handleRow = (row: SessionRealtimeRow | null | undefined) => {
+      const decision = resolveRealtimeSessionUpdate(sessionRef.current, row);
+
+      if (decision.kind === "apply") {
+        sessionRef.current = decision.session;
+        sessionIdRef.current = decision.session.id;
+        setSession(decision.session);
+        return;
+      }
+
+      if (decision.kind === "reverify") {
+        scheduleActiveSessionRecheck();
+      }
+    };
+
+    const channel = supabase
+      .channel("host-session-lifecycle")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "daily_sessions" },
+        (payload) => handleRow(payload.new as SessionRealtimeRow)
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "daily_sessions" },
+        (payload) => handleRow(payload.new as SessionRealtimeRow)
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [scheduleActiveSessionRecheck]);
 
   useEffect(() => {
     const timers = pulseTimers.current;
     return () => {
       timers.forEach((id) => window.clearTimeout(id));
       timers.clear();
+      if (recheckTimerRef.current !== null) {
+        window.clearTimeout(recheckTimerRef.current);
+        recheckTimerRef.current = null;
+      }
     };
   }, []);
 
