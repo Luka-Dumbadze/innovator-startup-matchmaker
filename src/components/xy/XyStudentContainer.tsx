@@ -147,6 +147,7 @@ export function XyStudentContainer() {
         sessionId,
         playerUid,
         vote,
+        roundNumber: round,
       });
       const stored = { sessionId, round, vote };
       saveXyStoredVote(stored);

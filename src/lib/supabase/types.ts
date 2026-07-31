@@ -540,6 +540,7 @@ export type Database = {
           p_session_id: string;
           p_player_uid: string;
           p_vote: string;
+          p_round_number?: number;
         };
         Returns: {
           round_number: number;

@@ -10,6 +10,7 @@ const XY_ERROR_MESSAGES: Record<string, string> = {
   XY_PLAYER_NOT_FOUND: "ჯერ არ ხართ სესიაში — სცადეთ თავიდან",
   FULL_NAME_REQUIRED: "ჩაწერეთ სახელი და გვარი",
   PLAYER_UID_REQUIRED: "მოწყობილობა ვერ ამოვიცანით — გადატვირთეთ გვერდი",
+  XY_ROUND_MISMATCH: "რაუნდი შეიცვალა — სცადეთ თავიდან",
   INVALID_VOTE: "არასწორი ხმა — აირჩიეთ X ან Y",
 };
 

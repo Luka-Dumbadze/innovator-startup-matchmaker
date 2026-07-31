@@ -606,6 +606,58 @@ describe("xy_join_player RPC signature", () => {
   });
 });
 
+describe("xy_cast_individual_vote RPC signature", () => {
+  const migration = readSource("supabase/migrations/010_xy_win_win_game.sql");
+  const client = readSource("src/lib/supabase/xy-client.ts");
+  const types = readSource("src/lib/supabase/types.ts");
+
+  it("declares the primary (session, player, vote, round) signature", () => {
+    const fnStart = migration.indexOf(
+      "CREATE OR REPLACE FUNCTION xy_cast_individual_vote(\n  p_session_id"
+    );
+    const fnBlock = migration.slice(
+      fnStart,
+      migration.indexOf(
+        "COMMENT ON FUNCTION xy_cast_individual_vote(UUID, TEXT, TEXT, INT)",
+        fnStart
+      )
+    );
+
+    expect(fnStart).toBeGreaterThan(-1);
+    expect(fnBlock).toMatch(/p_session_id\s+UUID/);
+    expect(fnBlock).toMatch(/p_player_uid\s+TEXT/);
+    expect(fnBlock).toMatch(/p_vote\s+TEXT/);
+    expect(fnBlock).toMatch(/p_round_number INT DEFAULT NULL/);
+    expect(fnBlock).toContain("COALESCE(p_round_number, v_session.current_round)");
+    expect(fnBlock).toContain("XY_ROUND_MISMATCH");
+  });
+
+  it("provides the (player, session, vote) compatibility overload", () => {
+    expect(migration).toContain(
+      "DROP FUNCTION IF EXISTS xy_cast_individual_vote(TEXT, UUID, TEXT)"
+    );
+    expect(migration).toMatch(
+      /CREATE OR REPLACE FUNCTION xy_cast_individual_vote\(\s*\n\s*p_player_uid TEXT,\s*\n\s*p_session_id UUID,\s*\n\s*p_vote\s+TEXT/
+    );
+    expect(migration).toContain(
+      "RETURN xy_cast_individual_vote(p_session_id, p_player_uid, p_vote, NULL)"
+    );
+    expect(migration).toContain(
+      "GRANT EXECUTE ON FUNCTION xy_cast_individual_vote(TEXT, UUID, TEXT)"
+    );
+  });
+
+  it("passes named args including optional p_round_number from the helper", () => {
+    expect(client).toContain('supabase.rpc("xy_cast_individual_vote", args)');
+    expect(client).toContain("p_session_id: input.sessionId");
+    expect(client).toContain("p_player_uid: input.playerUid");
+    expect(client).toContain("p_vote: input.vote");
+    expect(client).toContain("args.p_round_number = input.roundNumber");
+
+    expect(types).toMatch(/p_round_number\?: number/);
+  });
+});
+
 describe("xy_team_votes schema and reads", () => {
   const migration = readSource("supabase/migrations/010_xy_win_win_game.sql");
   const client = readSource("src/lib/supabase/xy-client.ts");

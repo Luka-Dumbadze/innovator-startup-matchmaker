@@ -553,11 +553,23 @@ GRANT EXECUTE ON FUNCTION xy_join_player(UUID, TEXT, TEXT, TEXT) TO anon, authen
 /**
  * Student casts (or changes) their phone vote for the session's OPEN round.
  * Rejects writes while the mentor has voting closed.
+ *
+ * Primary signature: (p_session_id, p_player_uid, p_vote, p_round_number).
+ * `p_round_number` is optional — when omitted the session's current_round is
+ * used; when supplied it must match the open round.
+ *
+ * Overload: (p_player_uid, p_session_id, p_vote) for callers that bind the
+ * device uid first (distinct argument types: TEXT, UUID, TEXT).
  */
+DROP FUNCTION IF EXISTS xy_cast_individual_vote(UUID, TEXT, TEXT);
+DROP FUNCTION IF EXISTS xy_cast_individual_vote(UUID, TEXT, TEXT, INT);
+DROP FUNCTION IF EXISTS xy_cast_individual_vote(TEXT, UUID, TEXT);
+
 CREATE OR REPLACE FUNCTION xy_cast_individual_vote(
-  p_session_id UUID,
-  p_player_uid TEXT,
-  p_vote       TEXT
+  p_session_id   UUID,
+  p_player_uid   TEXT,
+  p_vote         TEXT,
+  p_round_number INT DEFAULT NULL
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -568,6 +580,7 @@ DECLARE
   v_session   xy_sessions%ROWTYPE;
   v_player_id UUID;
   v_vote      TEXT := upper(btrim(COALESCE(p_vote, '')));
+  v_round     INT;
 BEGIN
   IF v_vote NOT IN ('X', 'Y') THEN
     RAISE EXCEPTION 'INVALID_VOTE: expected X or Y, got %', p_vote
@@ -590,6 +603,16 @@ BEGIN
       USING ERRCODE = 'check_violation';
   END IF;
 
+  v_round := COALESCE(p_round_number, v_session.current_round);
+
+  IF v_round <> v_session.current_round THEN
+    RAISE EXCEPTION
+      'XY_ROUND_MISMATCH: expected round %, got %',
+      v_session.current_round,
+      v_round
+      USING ERRCODE = 'check_violation';
+  END IF;
+
   SELECT id INTO v_player_id
   FROM xy_players
   WHERE session_id = p_session_id
@@ -601,7 +624,7 @@ BEGIN
   END IF;
 
   INSERT INTO xy_individual_votes (session_id, round_number, player_id, vote)
-  VALUES (p_session_id, v_session.current_round, v_player_id, v_vote)
+  VALUES (p_session_id, v_round, v_player_id, v_vote)
   ON CONFLICT (session_id, round_number, player_id)
   DO UPDATE SET
     vote = EXCLUDED.vote,
@@ -612,14 +635,38 @@ BEGIN
     updated_at = now();
 
   RETURN jsonb_build_object(
-    'round_number', v_session.current_round,
+    'round_number', v_round,
     'player_id', v_player_id,
     'vote', v_vote
   );
 END;
 $$;
 
-COMMENT ON FUNCTION xy_cast_individual_vote(UUID, TEXT, TEXT) IS
-  'Upserts a student phone vote (X/Y) for the currently open XY round.';
+COMMENT ON FUNCTION xy_cast_individual_vote(UUID, TEXT, TEXT, INT) IS
+  'Upserts a student phone vote (X/Y) for the currently open XY round. Optional p_round_number must match current_round.';
 
-GRANT EXECUTE ON FUNCTION xy_cast_individual_vote(UUID, TEXT, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION xy_cast_individual_vote(UUID, TEXT, TEXT, INT) TO anon, authenticated;
+
+/**
+ * Compatibility overload: device uid first, then session id.
+ * Delegates to the primary signature so both call shapes share one body.
+ */
+CREATE OR REPLACE FUNCTION xy_cast_individual_vote(
+  p_player_uid TEXT,
+  p_session_id UUID,
+  p_vote       TEXT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  RETURN xy_cast_individual_vote(p_session_id, p_player_uid, p_vote, NULL);
+END;
+$$;
+
+COMMENT ON FUNCTION xy_cast_individual_vote(TEXT, UUID, TEXT) IS
+  'Compatibility overload of xy_cast_individual_vote with (p_player_uid, p_session_id, p_vote) argument order.';
+
+GRANT EXECUTE ON FUNCTION xy_cast_individual_vote(TEXT, UUID, TEXT) TO anon, authenticated;

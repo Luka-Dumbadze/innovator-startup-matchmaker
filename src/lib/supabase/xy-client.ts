@@ -347,13 +347,34 @@ export async function xyJoinPlayer(
 /** Cast / change the student's phone vote for the currently open round. */
 export async function xyCastIndividualVote(
   supabase: SupabaseClient<Database>,
-  input: { sessionId: string; playerUid: string; vote: XYVote }
+  input: {
+    sessionId: string;
+    playerUid: string;
+    vote: XYVote;
+    /** When set, must match the session's open round (server validates). */
+    roundNumber?: number;
+  }
 ): Promise<{ round_number: number; player_id: string; vote: XYVote }> {
-  const { data, error } = await supabase.rpc("xy_cast_individual_vote", {
+  const args: {
+    p_session_id: string;
+    p_player_uid: string;
+    p_vote: string;
+    p_round_number?: number;
+  } = {
     p_session_id: input.sessionId,
     p_player_uid: input.playerUid,
     p_vote: input.vote,
-  });
+  };
+
+  if (
+    typeof input.roundNumber === "number" &&
+    Number.isInteger(input.roundNumber) &&
+    input.roundNumber >= 1
+  ) {
+    args.p_round_number = input.roundNumber;
+  }
+
+  const { data, error } = await supabase.rpc("xy_cast_individual_vote", args);
 
   if (error) {
     throw new Error(error.message);
