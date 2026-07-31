@@ -29,6 +29,7 @@ export interface XYTeam {
   team_number: number;
   name: string;
   color: string;
+  created_at: string;
 }
 
 export interface XYPlayer {

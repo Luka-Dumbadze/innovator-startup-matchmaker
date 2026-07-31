@@ -33,6 +33,7 @@ function makeTeams(count = XY_TEAM_COUNT): XYTeam[] {
     team_number: i + 1,
     name: XY_DEFAULT_TEAMS[i]?.name ?? `Team ${i + 1}`,
     color: "#2563EB",
+    created_at: "2026-07-31T09:00:00.000Z",
   }));
 }
 

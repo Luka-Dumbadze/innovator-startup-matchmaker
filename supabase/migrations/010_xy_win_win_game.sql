@@ -78,10 +78,38 @@ CREATE TABLE IF NOT EXISTS xy_teams (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id  UUID NOT NULL REFERENCES xy_sessions (id) ON DELETE CASCADE,
   team_number INT NOT NULL CHECK (team_number BETWEEN 1 AND 8),
-  name        TEXT NOT NULL,
+  name        TEXT NOT NULL DEFAULT 'გუნდი',
   color       TEXT NOT NULL DEFAULT '#2563EB',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT uq_xy_teams_session_number UNIQUE (session_id, team_number)
 );
+
+-- Upgrade path for databases created before these columns / constraints existed.
+ALTER TABLE xy_teams
+  ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT 'გუნდი',
+  ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT '#2563EB',
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'uq_xy_teams_session_number'
+  ) THEN
+    ALTER TABLE xy_teams
+      ADD CONSTRAINT uq_xy_teams_session_number UNIQUE (session_id, team_number);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'xy_teams_team_number_range'
+  ) THEN
+    ALTER TABLE xy_teams
+      ADD CONSTRAINT xy_teams_team_number_range CHECK (team_number BETWEEN 1 AND 8);
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_xy_teams_session
+  ON xy_teams (session_id, team_number);
 
 CREATE TABLE IF NOT EXISTS xy_players (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -179,6 +207,15 @@ BEGIN
   END LOOP;
 END;
 $$;
+
+-- Teams are roster scaffolding rather than game results: the mentor panel and
+-- any offline tooling may create, rename and re-colour them without auth.
+DROP POLICY IF EXISTS xy_teams_full_access ON xy_teams;
+CREATE POLICY xy_teams_full_access
+  ON xy_teams FOR ALL
+  TO anon, authenticated
+  USING (true)
+  WITH CHECK (true);
 
 /**
  * Student joins the active XY session with their real name.

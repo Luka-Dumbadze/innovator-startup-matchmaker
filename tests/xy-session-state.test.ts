@@ -264,3 +264,57 @@ describe("xy_sessions schema and action guards", () => {
     expect(actions).toContain("xySessionEndPatch()");
   });
 });
+
+describe("xy_teams migration is idempotent", () => {
+  const migration = readSource("supabase/migrations/010_xy_win_win_game.sql");
+
+  it("creates the table with every column the app reads", () => {
+    const createBlock = migration.slice(
+      migration.indexOf("CREATE TABLE IF NOT EXISTS xy_teams"),
+      migration.indexOf("-- Upgrade path for databases created before these columns")
+    );
+
+    expect(createBlock).toMatch(/id\s+UUID PRIMARY KEY DEFAULT gen_random_uuid\(\)/);
+    expect(createBlock).toMatch(
+      /session_id\s+UUID NOT NULL REFERENCES xy_sessions \(id\) ON DELETE CASCADE/
+    );
+    expect(createBlock).toMatch(/team_number\s+INT NOT NULL CHECK \(team_number BETWEEN 1 AND 8\)/);
+    expect(createBlock).toMatch(/name\s+TEXT NOT NULL DEFAULT/);
+    expect(createBlock).toMatch(/color\s+TEXT NOT NULL DEFAULT '#2563EB'/);
+    expect(createBlock).toMatch(/created_at\s+TIMESTAMPTZ NOT NULL DEFAULT now\(\)/);
+    expect(createBlock).toContain(
+      "CONSTRAINT uq_xy_teams_session_number UNIQUE (session_id, team_number)"
+    );
+  });
+
+  it("re-runs safely against a table that predates these columns", () => {
+    expect(migration).toMatch(/ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT '#2563EB'/);
+    expect(migration).toMatch(
+      /ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now\(\)/
+    );
+    expect(migration).toContain(
+      "SELECT 1 FROM pg_constraint WHERE conname = 'uq_xy_teams_session_number'"
+    );
+    expect(migration).toContain("CREATE INDEX IF NOT EXISTS idx_xy_teams_session");
+  });
+
+  it("enables RLS with a public full-access policy", () => {
+    expect(migration).toContain("ALTER TABLE xy_teams ENABLE ROW LEVEL SECURITY");
+    expect(migration).toContain("DROP POLICY IF EXISTS xy_teams_full_access ON xy_teams");
+    expect(migration).toMatch(
+      /CREATE POLICY xy_teams_full_access\s*\n\s*ON xy_teams FOR ALL\s*\n\s*TO anon, authenticated\s*\n\s*USING \(true\)\s*\n\s*WITH CHECK \(true\)/
+    );
+  });
+
+  it("registers the table for realtime exactly once", () => {
+    expect(migration).toContain("ALTER TABLE xy_teams REPLICA IDENTITY FULL");
+    expect(migration).toMatch(
+      /ALTER PUBLICATION supabase_realtime ADD TABLE %I[\s\S]*?WHEN duplicate_object THEN NULL/
+    );
+
+    const publicationLoop = migration.slice(
+      migration.indexOf("ALTER TABLE xy_sessions REPLICA IDENTITY FULL")
+    );
+    expect(publicationLoop).toContain("'xy_sessions', 'xy_teams', 'xy_players'");
+  });
+});

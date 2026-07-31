@@ -58,6 +58,7 @@ class XyGameStore {
       team_number: index + 1,
       name: team.name,
       color: team.color,
+      created_at: "2026-07-31T09:00:00.000Z",
     }));
   }
 
