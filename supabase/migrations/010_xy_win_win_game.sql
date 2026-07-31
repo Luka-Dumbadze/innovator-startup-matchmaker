@@ -8,15 +8,52 @@ CREATE TABLE IF NOT EXISTS xy_sessions (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   label         TEXT NOT NULL,
   is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+  status        TEXT NOT NULL DEFAULT 'active',
   current_round INT NOT NULL DEFAULT 1 CHECK (current_round >= 1),
   voting_open   BOOLEAN NOT NULL DEFAULT FALSE,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  ended_at      TIMESTAMPTZ
+  ended_at      TIMESTAMPTZ,
+  CONSTRAINT xy_sessions_status_allowed CHECK (status IN ('active', 'completed')),
+  -- The two liveness flags are always read together, so they may never drift.
+  CONSTRAINT xy_sessions_status_matches_is_active CHECK (
+    (is_active AND status = 'active') OR (NOT is_active AND status = 'completed')
+  )
 );
 
+-- Upgrade path for databases created before `status` existed.
+ALTER TABLE xy_sessions
+  ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+
+UPDATE xy_sessions
+SET status = CASE WHEN is_active THEN 'active' ELSE 'completed' END
+WHERE status IS DISTINCT FROM CASE WHEN is_active THEN 'active' ELSE 'completed' END;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'xy_sessions_status_allowed'
+  ) THEN
+    ALTER TABLE xy_sessions
+      ADD CONSTRAINT xy_sessions_status_allowed CHECK (status IN ('active', 'completed'));
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'xy_sessions_status_matches_is_active'
+  ) THEN
+    ALTER TABLE xy_sessions
+      ADD CONSTRAINT xy_sessions_status_matches_is_active CHECK (
+        (is_active AND status = 'active') OR (NOT is_active AND status = 'completed')
+      );
+  END IF;
+END;
+$$;
+
+-- Serves the canonical lookup: is_active = TRUE AND status = 'active'.
+DROP INDEX IF EXISTS idx_xy_sessions_active;
 CREATE INDEX IF NOT EXISTS idx_xy_sessions_active
-  ON xy_sessions (is_active, created_at DESC)
-  WHERE is_active = TRUE;
+  ON xy_sessions (is_active, status, created_at DESC)
+  WHERE is_active = TRUE AND status = 'active';
 
 CREATE TABLE IF NOT EXISTS xy_teams (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -151,8 +188,14 @@ BEGIN
     RAISE EXCEPTION 'FULL_NAME_REQUIRED' USING ERRCODE = 'check_violation';
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM xy_sessions WHERE id = p_session_id) THEN
-    RAISE EXCEPTION 'XY_SESSION_NOT_FOUND: %', p_session_id
+  IF NOT EXISTS (
+    SELECT 1
+    FROM xy_sessions
+    WHERE id = p_session_id
+      AND is_active = TRUE
+      AND status = 'active'
+  ) THEN
+    RAISE EXCEPTION 'XY_SESSION_NOT_ACTIVE: %', p_session_id
       USING ERRCODE = 'no_data_found';
   END IF;
 
@@ -195,9 +238,14 @@ BEGIN
       USING ERRCODE = 'check_violation';
   END IF;
 
-  SELECT * INTO v_session FROM xy_sessions WHERE id = p_session_id;
+  SELECT * INTO v_session
+  FROM xy_sessions
+  WHERE id = p_session_id
+    AND is_active = TRUE
+    AND status = 'active';
+
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'XY_SESSION_NOT_FOUND: %', p_session_id
+    RAISE EXCEPTION 'XY_SESSION_NOT_ACTIVE: %', p_session_id
       USING ERRCODE = 'no_data_found';
   END IF;
 

@@ -252,6 +252,7 @@ export type Database = {
           id: string;
           label: string;
           is_active: boolean;
+          status: "active" | "completed";
           current_round: number;
           voting_open: boolean;
           created_at: string;
@@ -261,6 +262,7 @@ export type Database = {
           id?: string;
           label: string;
           is_active?: boolean;
+          status?: "active" | "completed";
           current_round?: number;
           voting_open?: boolean;
           created_at?: string;
@@ -270,6 +272,7 @@ export type Database = {
           id?: string;
           label?: string;
           is_active?: boolean;
+          status?: "active" | "completed";
           current_round?: number;
           voting_open?: boolean;
           created_at?: string;

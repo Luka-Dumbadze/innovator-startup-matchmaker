@@ -8,10 +8,14 @@
 
 export type XYVote = "X" | "Y";
 
+/** Session lifecycle, always kept in lockstep with `is_active`. */
+export type XYSessionStatus = "active" | "completed";
+
 export interface XYSession {
   id: string;
   label: string;
   is_active: boolean;
+  status: XYSessionStatus;
   current_round: number;
   voting_open: boolean;
   created_at: string;

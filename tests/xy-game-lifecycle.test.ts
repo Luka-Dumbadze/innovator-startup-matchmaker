@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { balanceUnassignedPlayers } from "@/lib/xy/roster";
 import {
+  isXySessionLive,
+  xySessionEndPatch,
+  xySessionStartPatch,
+} from "@/lib/xy/session-state";
+import {
   XY_DEFAULT_TEAMS,
   buildAnalyticsCsv,
   buildAnalyticsRows,
@@ -41,11 +46,10 @@ class XyGameStore {
     this.session = {
       id: "xy-session-1",
       label,
-      is_active: true,
       current_round: 1,
       voting_open: false,
       created_at: "2026-07-31T09:00:00.000Z",
-      ended_at: null,
+      ...xySessionStartPatch(),
     };
 
     this.teams = XY_DEFAULT_TEAMS.map((team, index) => ({
@@ -64,6 +68,10 @@ class XyGameStore {
 
   /** Mirrors xy_join_player: idempotent on (session_id, player_uid). */
   joinPlayer(playerUid: string, fullName: string): XYPlayer {
+    if (!isXySessionLive(this.session)) {
+      throw new Error("XY_SESSION_NOT_ACTIVE");
+    }
+
     const name = fullName.trim();
     if (!name) throw new Error("FULL_NAME_REQUIRED");
 
@@ -85,13 +93,26 @@ class XyGameStore {
     return player;
   }
 
+  /** Mirrors setXyRoundStateAction: only a live session can drive rounds. */
   setRoundState(round: number, votingOpen: boolean): void {
+    if (!isXySessionLive(this.session)) {
+      throw new Error("XY_SESSION_NOT_ACTIVE");
+    }
     this.session.current_round = round;
     this.session.voting_open = votingOpen;
   }
 
-  /** Mirrors xy_cast_individual_vote: only writes while the round is open. */
+  /** Mirrors endXySessionAction: both liveness flags move together. */
+  endSession(): void {
+    this.session = { ...this.session, voting_open: false, ...xySessionEndPatch() };
+  }
+
+  /** Mirrors xy_cast_individual_vote: needs a live session and an open round. */
   castVote(playerUid: string, vote: XYVote): XYIndividualVote {
+    if (!isXySessionLive(this.session)) {
+      throw new Error("XY_SESSION_NOT_ACTIVE");
+    }
+
     if (!this.session.voting_open) {
       throw new Error("XY_VOTING_CLOSED");
     }
@@ -223,7 +244,10 @@ class XyGameStore {
 describe("XY game full lifecycle", () => {
   const store = new XyGameStore("XY თამაში — დღე 3");
 
-  it("phase 1 · mentor session starts with 8 named teams and voting closed", () => {
+  it("phase 1 · mentor session starts live with 8 named teams and voting closed", () => {
+    expect(store.session.is_active).toBe(true);
+    expect(store.session.status).toBe("active");
+    expect(isXySessionLive(store.session)).toBe(true);
     expect(store.teams).toHaveLength(8);
     expect(store.teams.map((t) => t.name)).toContain("ლურჯები");
     expect(store.teams.map((t) => t.name)).toContain("მწვანეები");
@@ -489,5 +513,44 @@ describe("XY game full lifecycle", () => {
       expect(serialized).not.toContain(vote.id);
       expect(serialized).not.toContain(vote.player_id);
     }
+  });
+
+  it("phase 16 · ending the session retires both liveness flags and locks the game", () => {
+    store.endSession();
+
+    expect(store.session.is_active).toBe(false);
+    expect(store.session.status).toBe("completed");
+    expect(store.session.ended_at).not.toBeNull();
+    expect(isXySessionLive(store.session)).toBe(false);
+    expect(store.session.voting_open).toBe(false);
+
+    expect(() => store.joinPlayer("uid-late", "გვიანი სტუდენტი")).toThrow(
+      /XY_SESSION_NOT_ACTIVE/
+    );
+    expect(() => store.castVote("uid-1", "Y")).toThrow(/XY_SESSION_NOT_ACTIVE/);
+    expect(() => store.setRoundState(3, true)).toThrow(/XY_SESSION_NOT_ACTIVE/);
+    expect(store.players).toHaveLength(40);
+  });
+
+  it("phase 17 · a retired session stays editable for grading and export", () => {
+    const before = computeStandings(store.teams, store.teamVotes)[0]?.totalPoints;
+
+    store.saveTeamRoundVotes(
+      2,
+      store.teams.map((team, index) => ({ teamId: team.id, vote: index === 0 ? "X" : "Y" }))
+    );
+
+    const after = computeStandings(store.teams, store.teamVotes);
+    expect(after[0]?.totalPoints).not.toBe(before);
+    expect(
+      store.teamVotes.filter((v) => v.round_number === 2 && v.vote === "X")
+    ).toHaveLength(1);
+
+    store.overrideIndividualVote(2, store.players[0]!.id, "X");
+    expect(
+      store.individualVotes.find(
+        (v) => v.round_number === 2 && v.player_id === store.players[0]!.id
+      )
+    ).toMatchObject({ vote: "X", edited_by_mentor: true });
   });
 });

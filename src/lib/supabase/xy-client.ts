@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "./types";
+import { XY_STATUS_ACTIVE, isXySessionLive } from "@/lib/xy/session-state";
 import type {
   XYIndividualVote,
   XYPlayer,
@@ -11,7 +12,10 @@ import type {
   XYVote,
 } from "@/types/xy";
 
-/** Newest active XY session; never `.single()` so duplicates can't crash reads. */
+/**
+ * Newest live XY session. Both liveness flags are filtered explicitly, and
+ * `.maybeSingle()` (never `.single()`) keeps duplicates from crashing reads.
+ */
 export async function fetchActiveXySession(
   supabase: SupabaseClient<Database>
 ): Promise<XYSession | null> {
@@ -19,6 +23,7 @@ export async function fetchActiveXySession(
     .from("xy_sessions")
     .select("*")
     .eq("is_active", true)
+    .eq("status", XY_STATUS_ACTIVE)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -27,7 +32,9 @@ export async function fetchActiveXySession(
     throw new Error(error.message);
   }
 
-  return data ?? null;
+  if (!data) return null;
+
+  return isXySessionLive(data) ? data : null;
 }
 
 export const EMPTY_XY_SNAPSHOT: XYSnapshot = {

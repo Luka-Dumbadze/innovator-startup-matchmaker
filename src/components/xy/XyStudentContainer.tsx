@@ -7,6 +7,7 @@ import { Loader2, UserRound } from "lucide-react";
 import { useXyLiveSession } from "@/hooks/useXyLiveSession";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { xyCastIndividualVote, xyJoinPlayer } from "@/lib/supabase/xy-client";
+import { isXySessionLive } from "@/lib/xy/session-state";
 import {
   XY_NAME_MAX,
   getOrCreateXyPlayerUid,
@@ -43,7 +44,7 @@ export function XyStudentContainer() {
   const session = live.session;
   const sessionId = session?.id ?? "";
   const round = session?.current_round ?? 1;
-  const votingOpen = session?.voting_open === true;
+  const votingOpen = isXySessionLive(session) && session?.voting_open === true;
 
   const me = useMemo(
     () => (playerUid ? live.players.find((p) => p.player_uid === playerUid) ?? null : null),

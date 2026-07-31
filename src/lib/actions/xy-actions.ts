@@ -5,6 +5,11 @@ import { revalidatePath } from "next/cache";
 import { createAdminSupabaseClient } from "@/lib/supabase/server";
 import { fetchXySnapshot } from "@/lib/supabase/xy-client";
 import { XY_DEFAULT_TEAMS, parseXYVote, scoreRoundForTeams } from "@/lib/xy/scoring";
+import {
+  XY_STATUS_ACTIVE,
+  xySessionEndPatch,
+  xySessionStartPatch,
+} from "@/lib/xy/session-state";
 import type { XYSnapshot, XYVote } from "@/types/xy";
 
 export type XYActionResult<T = void> =
@@ -37,8 +42,9 @@ export async function createXySessionAction(
 
     const { error: deactivateError } = await supabase
       .from("xy_sessions")
-      .update({ is_active: false, ended_at: new Date().toISOString() })
-      .eq("is_active", true);
+      .update(xySessionEndPatch())
+      .eq("is_active", true)
+      .eq("status", XY_STATUS_ACTIVE);
 
     if (deactivateError) {
       return { ok: false, error: deactivateError.message };
@@ -46,7 +52,12 @@ export async function createXySessionAction(
 
     const { data: session, error: sessionError } = await supabase
       .from("xy_sessions")
-      .insert({ label: cleanLabel, is_active: true, current_round: 1, voting_open: false })
+      .insert({
+        label: cleanLabel,
+        ...xySessionStartPatch(),
+        current_round: 1,
+        voting_open: false,
+      })
       .select("*")
       .maybeSingle();
 
@@ -155,14 +166,24 @@ export async function setXyRoundStateAction(input: {
       return { ok: false, error: "რაუნდის ნომერი არავალიდურია" };
     }
 
+    // Only a live session may open or close rounds, so both liveness flags are
+    // part of the WHERE clause rather than trusted from the client.
     const supabase = createAdminSupabaseClient();
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("xy_sessions")
       .update({ current_round: input.round, voting_open: input.votingOpen })
-      .eq("id", input.sessionId);
+      .eq("id", input.sessionId)
+      .eq("is_active", true)
+      .eq("status", XY_STATUS_ACTIVE)
+      .select("id")
+      .maybeSingle();
 
     if (error) {
       return { ok: false, error: error.message };
+    }
+
+    if (!data) {
+      return { ok: false, error: "XY სესია აქტიური არ არის — შექმენით ახალი" };
     }
 
     revalidateXyRoutes();
@@ -327,12 +348,10 @@ export async function endXySessionAction(
     const supabase = createAdminSupabaseClient();
     const { error } = await supabase
       .from("xy_sessions")
-      .update({
-        is_active: false,
-        voting_open: false,
-        ended_at: new Date().toISOString(),
-      })
-      .eq("id", sessionId);
+      .update({ ...xySessionEndPatch(), voting_open: false })
+      .eq("id", sessionId)
+      .eq("is_active", true)
+      .eq("status", XY_STATUS_ACTIVE);
 
     if (error) {
       return { ok: false, error: error.message };
