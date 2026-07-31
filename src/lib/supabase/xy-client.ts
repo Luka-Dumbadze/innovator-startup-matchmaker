@@ -41,6 +41,18 @@ export async function fetchActiveXySession(
   return isXySessionLive(data) ? data : null;
 }
 
+export const XY_TEAM_COLUMNS = "id, session_id, team_number, name, color, created_at";
+
+export const XY_PLAYER_COLUMNS =
+  "id, session_id, player_uid, full_name, team_id, created_at";
+
+/** `player_id` is the FK to xy_players.id and is always read back explicitly. */
+export const XY_INDIVIDUAL_VOTE_COLUMNS =
+  "id, session_id, round_number, player_id, vote, edited_by_mentor";
+
+export const XY_TEAM_VOTE_COLUMNS =
+  "id, session_id, round_number, team_id, vote, points";
+
 export const EMPTY_XY_SNAPSHOT: XYSnapshot = {
   session: null,
   teams: [],
@@ -61,21 +73,22 @@ export async function fetchXySnapshot(
   const [teamsRes, playersRes, individualRes, teamVotesRes] = await Promise.all([
     supabase
       .from("xy_teams")
-      .select("*")
+      .select(XY_TEAM_COLUMNS)
       .eq("session_id", session.id)
       .order("team_number", { ascending: true }),
     supabase
       .from("xy_players")
-      .select("*")
+      .select(XY_PLAYER_COLUMNS)
       .eq("session_id", session.id)
       .order("created_at", { ascending: true }),
     supabase
       .from("xy_individual_votes")
-      .select("id, session_id, round_number, player_id, vote, edited_by_mentor")
-      .eq("session_id", session.id),
+      .select(XY_INDIVIDUAL_VOTE_COLUMNS)
+      .eq("session_id", session.id)
+      .order("player_id", { ascending: true }),
     supabase
       .from("xy_team_votes")
-      .select("id, session_id, round_number, team_id, vote, points")
+      .select(XY_TEAM_VOTE_COLUMNS)
       .eq("session_id", session.id),
   ]);
 
@@ -119,7 +132,7 @@ export async function xyJoinPlayer(
 export async function xyCastIndividualVote(
   supabase: SupabaseClient<Database>,
   input: { sessionId: string; playerUid: string; vote: XYVote }
-): Promise<{ round_number: number; vote: XYVote }> {
+): Promise<{ round_number: number; player_id: string; vote: XYVote }> {
   const { data, error } = await supabase.rpc("xy_cast_individual_vote", {
     p_session_id: input.sessionId,
     p_player_uid: input.playerUid,
@@ -130,9 +143,13 @@ export async function xyCastIndividualVote(
     throw new Error(error.message);
   }
 
-  const raw = data as { round_number?: number; vote?: string } | null;
+  const raw = data as
+    | { round_number?: number; player_id?: string; vote?: string }
+    | null;
+
   return {
     round_number: Number(raw?.round_number ?? 0),
+    player_id: raw?.player_id ?? "",
     vote: raw?.vote === "X" ? "X" : "Y",
   };
 }

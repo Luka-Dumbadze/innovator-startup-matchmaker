@@ -318,3 +318,48 @@ describe("xy_teams migration is idempotent", () => {
     expect(publicationLoop).toContain("'xy_sessions', 'xy_teams', 'xy_players'");
   });
 });
+
+describe("xy_individual_votes.player_id", () => {
+  const migration = readSource("supabase/migrations/010_xy_win_win_game.sql");
+  const client = readSource("src/lib/supabase/xy-client.ts");
+  const actions = readSource("src/lib/actions/xy-actions.ts");
+
+  it("is declared NOT NULL and cascades from xy_players", () => {
+    expect(migration).toMatch(
+      /player_id\s+UUID NOT NULL REFERENCES xy_players \(id\) ON DELETE CASCADE/
+    );
+    expect(migration).toContain(
+      "CONSTRAINT uq_xy_individual_votes UNIQUE (session_id, round_number, player_id)"
+    );
+  });
+
+  it("re-runs safely and restores the NOT NULL + FK guarantees", () => {
+    expect(migration).toMatch(/ADD COLUMN IF NOT EXISTS player_id UUID/);
+    expect(migration).toContain(
+      "DELETE FROM xy_individual_votes WHERE player_id IS NULL"
+    );
+    expect(migration).toContain(
+      "ALTER TABLE xy_individual_votes ALTER COLUMN player_id SET NOT NULL"
+    );
+    expect(migration).toContain(
+      "SELECT 1 FROM pg_constraint WHERE conname = 'xy_individual_votes_player_id_fkey'"
+    );
+    expect(migration).toContain("CREATE INDEX IF NOT EXISTS idx_xy_individual_votes_player");
+  });
+
+  it("is selected, inserted and returned by every code path", () => {
+    expect(client).toContain(
+      'XY_INDIVIDUAL_VOTE_COLUMNS =\n  "id, session_id, round_number, player_id, vote, edited_by_mentor"'
+    );
+    expect(client).toContain(".select(XY_INDIVIDUAL_VOTE_COLUMNS)");
+    expect(client).toMatch(/player_id: raw\?\.player_id \?\? ""/);
+
+    // The RPC writes it on the student path; the override action on the mentor path.
+    expect(migration).toContain(
+      "INSERT INTO xy_individual_votes (session_id, round_number, player_id, vote)"
+    );
+    expect(migration).toContain("'player_id', v_player_id");
+    expect(actions).toContain("player_id: input.playerId");
+    expect(actions).toMatch(/\.eq\("player_id", input\.playerId\)/);
+  });
+});

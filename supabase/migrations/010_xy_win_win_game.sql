@@ -136,8 +136,45 @@ CREATE TABLE IF NOT EXISTS xy_individual_votes (
   CONSTRAINT uq_xy_individual_votes UNIQUE (session_id, round_number, player_id)
 );
 
+-- Upgrade path for databases created before these columns / constraints existed.
+-- `player_id` stays UUID so the FK to xy_players (and its ON DELETE CASCADE)
+-- survives; every client already treats the value as an opaque string.
+ALTER TABLE xy_individual_votes
+  ADD COLUMN IF NOT EXISTS player_id UUID,
+  ADD COLUMN IF NOT EXISTS edited_by_mentor BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+-- A vote with no voter cannot be attributed to a student, so it cannot be
+-- analysed or exported — drop those before restoring the NOT NULL guarantee.
+DELETE FROM xy_individual_votes WHERE player_id IS NULL;
+
+DO $$
+BEGIN
+  ALTER TABLE xy_individual_votes ALTER COLUMN player_id SET NOT NULL;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'xy_individual_votes_player_id_fkey'
+  ) THEN
+    ALTER TABLE xy_individual_votes
+      ADD CONSTRAINT xy_individual_votes_player_id_fkey
+      FOREIGN KEY (player_id) REFERENCES xy_players (id) ON DELETE CASCADE;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'uq_xy_individual_votes'
+  ) THEN
+    ALTER TABLE xy_individual_votes
+      ADD CONSTRAINT uq_xy_individual_votes UNIQUE (session_id, round_number, player_id);
+  END IF;
+END;
+$$;
+
 CREATE INDEX IF NOT EXISTS idx_xy_individual_votes_round
   ON xy_individual_votes (session_id, round_number);
+
+CREATE INDEX IF NOT EXISTS idx_xy_individual_votes_player
+  ON xy_individual_votes (player_id);
 
 -- One paper decision per team per round (mentor entered).
 CREATE TABLE IF NOT EXISTS xy_team_votes (
