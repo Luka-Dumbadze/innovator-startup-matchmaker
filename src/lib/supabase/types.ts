@@ -522,7 +522,8 @@ export type Database = {
         Args: {
           p_session_id: string;
           p_player_uid: string;
-          p_full_name: string;
+          p_full_name?: string;
+          p_real_name?: string;
         };
         Returns: {
           id: string;

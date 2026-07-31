@@ -314,12 +314,22 @@ export async function fetchXySnapshot(
 /** Idempotent roster join keyed by device uid. */
 export async function xyJoinPlayer(
   supabase: SupabaseClient<Database>,
-  input: { sessionId: string; playerUid: string; fullName: string }
+  input: {
+    sessionId: string;
+    playerUid: string;
+    fullName: string;
+    /** Optional alias — defaults to `fullName` so either column spelling works. */
+    realName?: string;
+  }
 ): Promise<XYPlayer> {
+  const fullName = input.fullName.trim();
+  const realName = (input.realName ?? input.fullName).trim();
+
   const { data, error } = await supabase.rpc("xy_join_player", {
     p_session_id: input.sessionId,
     p_player_uid: input.playerUid,
-    p_full_name: input.fullName,
+    p_full_name: fullName,
+    p_real_name: realName,
   });
 
   if (error) {

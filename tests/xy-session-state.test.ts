@@ -562,6 +562,50 @@ describe("xy_players name columns", () => {
   });
 });
 
+describe("xy_join_player RPC signature", () => {
+  const migration = readSource("supabase/migrations/010_xy_win_win_game.sql");
+  const client = readSource("src/lib/supabase/xy-client.ts");
+  const types = readSource("src/lib/supabase/types.ts");
+
+  it("accepts both p_full_name and p_real_name with defaults for named calls", () => {
+    const fnStart = migration.indexOf("CREATE OR REPLACE FUNCTION xy_join_player(");
+    const fnBlock = migration.slice(
+      fnStart,
+      migration.indexOf("COMMENT ON FUNCTION xy_join_player", fnStart)
+    );
+
+    expect(fnStart).toBeGreaterThan(-1);
+    expect(fnBlock).toMatch(/p_session_id\s+UUID/);
+    expect(fnBlock).toMatch(/p_player_uid\s+TEXT/);
+    expect(fnBlock).toMatch(/p_full_name\s+TEXT DEFAULT NULL/);
+    expect(fnBlock).toMatch(/p_real_name\s+TEXT DEFAULT NULL/);
+    // Either spelling alone is enough to join.
+    expect(fnBlock).toContain("NULLIF(btrim(COALESCE(p_real_name, '')), '')");
+    expect(fnBlock).toContain("NULLIF(btrim(COALESCE(p_full_name, '')), '')");
+  });
+
+  it("drops the legacy 3-arg overload before creating the 4-arg function", () => {
+    expect(migration).toContain("DROP FUNCTION IF EXISTS xy_join_player(UUID, TEXT, TEXT);");
+    expect(migration).toContain(
+      "DROP FUNCTION IF EXISTS xy_join_player(UUID, TEXT, TEXT, TEXT);"
+    );
+    expect(migration).toContain(
+      "GRANT EXECUTE ON FUNCTION xy_join_player(UUID, TEXT, TEXT, TEXT)"
+    );
+  });
+
+  it("passes all four named args from the TypeScript helper", () => {
+    expect(client).toContain('supabase.rpc("xy_join_player"');
+    expect(client).toContain("p_session_id: input.sessionId");
+    expect(client).toContain("p_player_uid: input.playerUid");
+    expect(client).toContain("p_full_name: fullName");
+    expect(client).toContain("p_real_name: realName");
+
+    expect(types).toMatch(/p_full_name\?: string/);
+    expect(types).toMatch(/p_real_name\?: string/);
+  });
+});
+
 describe("xy_team_votes schema and reads", () => {
   const migration = readSource("supabase/migrations/010_xy_win_win_game.sql");
   const client = readSource("src/lib/supabase/xy-client.ts");

@@ -485,11 +485,19 @@ CREATE POLICY xy_teams_full_access
 /**
  * Student joins the active XY session with their real name.
  * Idempotent per (session_id, player_uid) — refreshes the name on re-join.
+ *
+ * Accepts either name spelling (or both). Named-arg callers may pass only
+ * `p_full_name` or only `p_real_name`; positional 3-arg calls still bind
+ * `p_full_name` and leave `p_real_name` at its default.
  */
+DROP FUNCTION IF EXISTS xy_join_player(UUID, TEXT, TEXT);
+DROP FUNCTION IF EXISTS xy_join_player(UUID, TEXT, TEXT, TEXT);
+
 CREATE OR REPLACE FUNCTION xy_join_player(
   p_session_id UUID,
   p_player_uid TEXT,
-  p_full_name  TEXT
+  p_full_name  TEXT DEFAULT NULL,
+  p_real_name  TEXT DEFAULT NULL
 )
 RETURNS xy_players
 LANGUAGE plpgsql
@@ -498,7 +506,12 @@ SET search_path = public
 AS $$
 DECLARE
   v_uid    TEXT := btrim(COALESCE(p_player_uid, ''));
-  v_name   TEXT := btrim(COALESCE(p_full_name, ''));
+  -- Prefer real_name (same order as resolveXyPlayerName), then full_name.
+  v_name   TEXT := COALESCE(
+    NULLIF(btrim(COALESCE(p_real_name, '')), ''),
+    NULLIF(btrim(COALESCE(p_full_name, '')), ''),
+    ''
+  );
   v_player xy_players%ROWTYPE;
 BEGIN
   IF v_uid = '' THEN
@@ -532,10 +545,10 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION xy_join_player(UUID, TEXT, TEXT) IS
-  'Idempotent XY-game roster join keyed by (session_id, player_uid).';
+COMMENT ON FUNCTION xy_join_player(UUID, TEXT, TEXT, TEXT) IS
+  'Idempotent XY-game roster join keyed by (session_id, player_uid). Accepts p_full_name and/or p_real_name.';
 
-GRANT EXECUTE ON FUNCTION xy_join_player(UUID, TEXT, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION xy_join_player(UUID, TEXT, TEXT, TEXT) TO anon, authenticated;
 
 /**
  * Student casts (or changes) their phone vote for the session's OPEN round.
