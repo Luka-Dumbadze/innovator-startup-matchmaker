@@ -10,6 +10,7 @@ import {
   resolveRoundNumbers,
   type XYAnalyticsCell,
 } from "@/lib/xy/scoring";
+import { resolveXyPlayerName } from "@/lib/xy/roster";
 import { resolveXySessionLabel } from "@/lib/xy/session-state";
 
 function CellBadge({ cell }: { cell: XYAnalyticsCell }) {
@@ -170,7 +171,7 @@ export function XyAnalyticsDashboard() {
               {rows.map((row) => (
                 <tr key={row.player.id} className="bg-slate-950/40">
                   <td className="sticky left-0 z-10 bg-slate-950 px-3 py-2 font-[family-name:var(--font-noto-georgian)] font-bold text-slate-100">
-                    {row.player.full_name}
+                    {resolveXyPlayerName(row.player)}
                   </td>
                   <td className="px-3 py-2 font-[family-name:var(--font-noto-georgian)] text-slate-300">
                     {row.teamNumber === null ? "—" : `#${row.teamNumber} `}

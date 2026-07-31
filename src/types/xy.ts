@@ -37,6 +37,12 @@ export interface XYPlayer {
   session_id: string;
   player_uid: string;
   full_name: string;
+  /**
+   * Mirror of `full_name` under the name the rest of the app uses. A database
+   * that predates one of the two columns leaves the other side null, so read
+   * names through `resolveXyPlayerName()` rather than either field directly.
+   */
+  real_name?: string | null;
   team_id: string | null;
   created_at: string;
 }

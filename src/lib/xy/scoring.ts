@@ -6,6 +6,7 @@ import type {
   XYTeamVote,
   XYVote,
 } from "@/types/xy";
+import { resolveXyPlayerName } from "@/lib/xy/roster";
 
 /** A full XY round is scored across exactly 8 team decisions. */
 export const XY_TEAM_COUNT = 8;
@@ -250,7 +251,7 @@ export function buildAnalyticsRows(input: {
   return rows.sort(
     (a, b) =>
       (a.teamNumber ?? 99) - (b.teamNumber ?? 99) ||
-      a.player.full_name.localeCompare(b.player.full_name)
+      resolveXyPlayerName(a.player).localeCompare(resolveXyPlayerName(b.player))
   );
 }
 
@@ -309,7 +310,7 @@ export function buildAnalyticsCsv(
 
   for (const row of rows) {
     const cols = [
-      row.player.full_name,
+      resolveXyPlayerName(row.player),
       row.teamNumber === null ? "—" : String(row.teamNumber),
       row.teamName,
       ...row.cells.flatMap((cell) => [

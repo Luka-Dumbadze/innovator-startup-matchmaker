@@ -8,6 +8,7 @@ import {
   parseXySessionStatus,
   resolveXySessionLabel,
 } from "@/lib/xy/session-state";
+import { resolveXyPlayerName } from "@/lib/xy/roster";
 import type {
   XYIndividualVote,
   XYPlayer,
@@ -107,8 +108,9 @@ export async function fetchActiveXySession(
 
 export const XY_TEAM_COLUMNS = "id, session_id, team_number, name, color, created_at";
 
+/** Both name columns are read so either spelling can satisfy the UI. */
 export const XY_PLAYER_COLUMNS =
-  "id, session_id, player_uid, full_name, team_id, created_at";
+  "id, session_id, player_uid, full_name, real_name, team_id, created_at";
 
 /** `player_id` is the FK to xy_players.id and is always read back explicitly. */
 export const XY_INDIVIDUAL_VOTE_COLUMNS =
@@ -125,6 +127,42 @@ export const EMPTY_XY_SNAPSHOT: XYSnapshot = {
   teamVotes: [],
 };
 
+/**
+ * Roster read that survives a database holding only one of the two name
+ * columns: the explicit list is tried first, then a wildcard select, and the
+ * missing side is filled in from whichever name did come back.
+ */
+async function fetchXyPlayers(
+  supabase: SupabaseClient<Database>,
+  sessionId: string
+): Promise<{ data: XYPlayer[] | null; error: { message: string } | null }> {
+  const explicit = await supabase
+    .from("xy_players")
+    .select(XY_PLAYER_COLUMNS)
+    .eq("session_id", sessionId)
+    .order("created_at", { ascending: true });
+
+  const rows =
+    explicit.error?.code === UNDEFINED_COLUMN
+      ? await supabase
+          .from("xy_players")
+          .select("*")
+          .eq("session_id", sessionId)
+          .order("created_at", { ascending: true })
+      : explicit;
+
+  if (rows.error) {
+    return { data: null, error: rows.error };
+  }
+
+  const players = ((rows.data ?? []) as XYPlayer[]).map((player) => {
+    const name = resolveXyPlayerName(player);
+    return { ...player, full_name: name, real_name: name };
+  });
+
+  return { data: players, error: null };
+}
+
 /** One read powering the student, mentor, scoreboard and analytics screens. */
 export async function fetchXySnapshot(
   supabase: SupabaseClient<Database>
@@ -140,11 +178,7 @@ export async function fetchXySnapshot(
       .select(XY_TEAM_COLUMNS)
       .eq("session_id", session.id)
       .order("team_number", { ascending: true }),
-    supabase
-      .from("xy_players")
-      .select(XY_PLAYER_COLUMNS)
-      .eq("session_id", session.id)
-      .order("created_at", { ascending: true }),
+    fetchXyPlayers(supabase, session.id),
     supabase
       .from("xy_individual_votes")
       .select(XY_INDIVIDUAL_VOTE_COLUMNS)
@@ -189,7 +223,9 @@ export async function xyJoinPlayer(
     throw new Error("xy_join_player returned no player");
   }
 
-  return data as XYPlayer;
+  const player = data as XYPlayer;
+  const name = resolveXyPlayerName(player);
+  return { ...player, full_name: name, real_name: name };
 }
 
 /** Cast / change the student's phone vote for the currently open round. */

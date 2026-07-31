@@ -403,6 +403,20 @@ describe("buildAnalyticsCsv", () => {
     expect(lines[1]).toContain(XY_ALIGNMENT_BADGE.stealth_defector);
     expect(lines[1]?.endsWith(",1,0")).toBe(true);
   });
+
+  it("exports a student whose row only carries real_name", () => {
+    const legacyRows = buildAnalyticsRows({
+      players: [
+        { ...makePlayer("p1", "", "team-1"), real_name: "ლუკა კაპანაძე" },
+      ],
+      teams,
+      individualVotes: [makeIndividualVote("p1", 1, "Y")],
+      teamVotes: [makeTeamVote("team-1", 1, "Y", 10)],
+      rounds: [1],
+    });
+
+    expect(buildAnalyticsCsv(legacyRows, [1])).toContain("ლუკა კაპანაძე");
+  });
 });
 
 describe("balanceUnassignedPlayers", () => {

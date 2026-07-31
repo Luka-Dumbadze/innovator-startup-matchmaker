@@ -322,6 +322,7 @@ export type Database = {
           session_id: string;
           player_uid: string;
           full_name: string;
+          real_name: string | null;
           team_id: string | null;
           created_at: string;
         };
@@ -330,6 +331,7 @@ export type Database = {
           session_id: string;
           player_uid: string;
           full_name: string;
+          real_name?: string | null;
           team_id?: string | null;
           created_at?: string;
         };
@@ -338,6 +340,7 @@ export type Database = {
           session_id?: string;
           player_uid?: string;
           full_name?: string;
+          real_name?: string | null;
           team_id?: string | null;
           created_at?: string;
         };
@@ -514,6 +517,7 @@ export type Database = {
           session_id: string;
           player_uid: string;
           full_name: string;
+          real_name: string | null;
           team_id: string | null;
           created_at: string;
         };

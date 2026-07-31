@@ -111,15 +111,83 @@ $$;
 CREATE INDEX IF NOT EXISTS idx_xy_teams_session
   ON xy_teams (session_id, team_number);
 
+-- `full_name` is the XY-game column; `real_name` mirrors it because the rest of
+-- this app (player_assignments, submitted_ideas) names the same field that way.
+-- A trigger keeps the pair in lockstep so either name can be read or written.
 CREATE TABLE IF NOT EXISTS xy_players (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id UUID NOT NULL REFERENCES xy_sessions (id) ON DELETE CASCADE,
   player_uid TEXT NOT NULL,
   full_name  TEXT NOT NULL,
+  real_name  TEXT,
   team_id    UUID REFERENCES xy_teams (id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT uq_xy_players_session_uid UNIQUE (session_id, player_uid)
 );
+
+-- Upgrade path for databases that only have one of the two name columns.
+ALTER TABLE xy_players
+  ADD COLUMN IF NOT EXISTS full_name TEXT,
+  ADD COLUMN IF NOT EXISTS real_name TEXT,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+UPDATE xy_players
+SET full_name = real_name
+WHERE btrim(COALESCE(full_name, '')) = ''
+  AND btrim(COALESCE(real_name, '')) <> '';
+
+UPDATE xy_players
+SET real_name = full_name
+WHERE btrim(COALESCE(real_name, '')) = ''
+  AND btrim(COALESCE(full_name, '')) <> '';
+
+-- Nameless leftovers would block the NOT NULL below; the join RPC rejects
+-- blank names, so these can only be pre-existing junk rows.
+UPDATE xy_players SET full_name = '' WHERE full_name IS NULL;
+
+ALTER TABLE xy_players
+  ALTER COLUMN full_name SET DEFAULT '',
+  ALTER COLUMN full_name SET NOT NULL;
+
+-- A legacy NOT NULL on real_name would break writers that only set full_name.
+ALTER TABLE xy_players
+  ALTER COLUMN real_name DROP NOT NULL,
+  ALTER COLUMN real_name SET DEFAULT '';
+
+/**
+ * Keeps full_name and real_name equal no matter which one a writer sets.
+ * On UPDATE the column that actually changed wins; on INSERT whichever column
+ * carries a value is copied to the empty one.
+ */
+CREATE OR REPLACE FUNCTION xy_players_sync_names()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    IF NEW.full_name IS DISTINCT FROM OLD.full_name THEN
+      NEW.real_name := NEW.full_name;
+    ELSIF NEW.real_name IS DISTINCT FROM OLD.real_name THEN
+      NEW.full_name := NEW.real_name;
+    END IF;
+  END IF;
+
+  IF btrim(COALESCE(NEW.full_name, '')) = '' THEN
+    NEW.full_name := COALESCE(NEW.real_name, '');
+  ELSIF btrim(COALESCE(NEW.real_name, '')) = '' THEN
+    NEW.real_name := NEW.full_name;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_xy_players_sync_names ON xy_players;
+CREATE TRIGGER trg_xy_players_sync_names
+  BEFORE INSERT OR UPDATE ON xy_players
+  FOR EACH ROW
+  EXECUTE FUNCTION xy_players_sync_names();
 
 CREATE INDEX IF NOT EXISTS idx_xy_players_team ON xy_players (team_id);
 
@@ -292,10 +360,12 @@ BEGIN
       USING ERRCODE = 'no_data_found';
   END IF;
 
-  INSERT INTO xy_players (session_id, player_uid, full_name)
-  VALUES (p_session_id, v_uid, v_name)
+  INSERT INTO xy_players (session_id, player_uid, full_name, real_name)
+  VALUES (p_session_id, v_uid, v_name, v_name)
   ON CONFLICT (session_id, player_uid)
-  DO UPDATE SET full_name = EXCLUDED.full_name
+  DO UPDATE SET
+    full_name = EXCLUDED.full_name,
+    real_name = EXCLUDED.full_name
   RETURNING * INTO v_player;
 
   RETURN v_player;

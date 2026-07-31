@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 
+import { resolveXyPlayerName } from "@/lib/xy/roster";
 import { computeSubmissionProgress } from "@/lib/xy/scoring";
 import type { XYIndividualVote, XYPlayer, XYTeam } from "@/types/xy";
 
@@ -88,7 +89,7 @@ export function XySubmissionProgress({
                 return (
                   <tr key={player.id} className="bg-slate-950/40">
                     <td className="px-3 py-2 font-[family-name:var(--font-noto-georgian)] text-slate-100">
-                      {player.full_name}
+                      {resolveXyPlayerName(player)}
                     </td>
                     <td className="px-3 py-2 font-[family-name:var(--font-noto-georgian)] text-slate-400">
                       {player.team_id ? teamNameById.get(player.team_id) ?? "—" : "—"}

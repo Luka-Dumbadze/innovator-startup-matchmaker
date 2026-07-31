@@ -8,6 +8,10 @@ import {
   normalizeXySessionRow,
 } from "@/lib/supabase/xy-client";
 import {
+  XY_UNKNOWN_PLAYER_NAME,
+  resolveXyPlayerName,
+} from "@/lib/xy/roster";
+import {
   XY_DEFAULT_SESSION_LABEL,
   XY_SESSION_LABEL_MAX,
   XY_STATUS_ACTIVE,
@@ -502,6 +506,76 @@ describe("xy_teams migration is idempotent", () => {
       migration.indexOf("ALTER TABLE xy_sessions REPLICA IDENTITY FULL")
     );
     expect(publicationLoop).toContain("'xy_sessions', 'xy_teams', 'xy_players'");
+  });
+});
+
+describe("xy_players name columns", () => {
+  const migration = readSource("supabase/migrations/010_xy_win_win_game.sql");
+  const client = readSource("src/lib/supabase/xy-client.ts");
+
+  it("declares both full_name and real_name", () => {
+    const createBlock = migration.slice(
+      migration.indexOf("CREATE TABLE IF NOT EXISTS xy_players"),
+      migration.indexOf("-- Upgrade path for databases that only have one")
+    );
+
+    expect(createBlock).toMatch(/full_name\s+TEXT NOT NULL/);
+    expect(createBlock).toMatch(/real_name\s+TEXT/);
+  });
+
+  it("adds either missing column and backfills it from the other", () => {
+    expect(migration).toContain("ADD COLUMN IF NOT EXISTS full_name TEXT");
+    expect(migration).toContain("ADD COLUMN IF NOT EXISTS real_name TEXT");
+
+    expect(migration).toMatch(
+      /UPDATE xy_players\s*\nSET full_name = real_name\s*\nWHERE btrim\(COALESCE\(full_name, ''\)\) = ''/
+    );
+    expect(migration).toMatch(
+      /UPDATE xy_players\s*\nSET real_name = full_name\s*\nWHERE btrim\(COALESCE\(real_name, ''\)\) = ''/
+    );
+
+    // A legacy NOT NULL on real_name would reject full_name-only writers.
+    expect(migration).toMatch(/ALTER COLUMN real_name DROP NOT NULL/);
+    expect(migration).toMatch(/ALTER COLUMN full_name SET NOT NULL/);
+  });
+
+  it("keeps the two columns in lockstep for every writer", () => {
+    expect(migration).toContain("CREATE OR REPLACE FUNCTION xy_players_sync_names()");
+    expect(migration).toMatch(
+      /CREATE TRIGGER trg_xy_players_sync_names\s*\n\s*BEFORE INSERT OR UPDATE ON xy_players/
+    );
+    expect(migration).toContain(
+      "INSERT INTO xy_players (session_id, player_uid, full_name, real_name)"
+    );
+    expect(migration).toMatch(/real_name = EXCLUDED\.full_name/);
+  });
+
+  it("selects both columns and tolerates a table missing one of them", () => {
+    expect(client).toContain(
+      'XY_PLAYER_COLUMNS =\n  "id, session_id, player_uid, full_name, real_name, team_id, created_at"'
+    );
+    expect(client).toContain(".select(XY_PLAYER_COLUMNS)");
+    expect(client).toContain("explicit.error?.code === UNDEFINED_COLUMN");
+  });
+});
+
+describe("resolveXyPlayerName", () => {
+  it("prefers real_name and falls back to full_name", () => {
+    expect(
+      resolveXyPlayerName({ full_name: "ნინო ბერიძე", real_name: "ნინო ბ." })
+    ).toBe("ნინო ბ.");
+    expect(resolveXyPlayerName({ full_name: "ნინო ბერიძე", real_name: null })).toBe(
+      "ნინო ბერიძე"
+    );
+    expect(resolveXyPlayerName({ full_name: "", real_name: "  ლუკა  " })).toBe("ლუკა");
+  });
+
+  it("never renders a blank cell", () => {
+    expect(resolveXyPlayerName({ full_name: "   ", real_name: "  " })).toBe(
+      XY_UNKNOWN_PLAYER_NAME
+    );
+    expect(resolveXyPlayerName(null)).toBe(XY_UNKNOWN_PLAYER_NAME);
+    expect(resolveXyPlayerName(undefined)).toBe(XY_UNKNOWN_PLAYER_NAME);
   });
 });
 

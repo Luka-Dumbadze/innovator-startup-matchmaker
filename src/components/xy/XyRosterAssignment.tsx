@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { Check, Users } from "lucide-react";
 
+import { resolveXyPlayerName } from "@/lib/xy/roster";
 import type { XYPlayer, XYTeam } from "@/types/xy";
 
 type XyRosterAssignmentProps = {
@@ -115,7 +116,7 @@ export function XyRosterAssignment({
               {players.map((player) => (
                 <tr key={player.id} className="bg-slate-950/40">
                   <td className="px-3 py-2 font-[family-name:var(--font-noto-georgian)] text-slate-100">
-                    {player.full_name}
+                    {resolveXyPlayerName(player)}
                   </td>
                   <td className="px-3 py-2">
                     <select

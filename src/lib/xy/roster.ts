@@ -5,6 +5,26 @@ export type XYRosterAssignment = {
   teamId: string;
 };
 
+/** Shown when a roster row carries no usable name at all. */
+export const XY_UNKNOWN_PLAYER_NAME = "უცნობი მოთამაშე";
+
+/**
+ * The student's display name, tolerating either spelling of the column.
+ * `real_name` wins because a half-migrated database can hold a stale or empty
+ * `full_name` next to the name the student actually typed.
+ */
+export function resolveXyPlayerName(
+  player: Pick<XYPlayer, "full_name" | "real_name"> | null | undefined
+): string {
+  const realName = player?.real_name?.trim();
+  if (realName) return realName;
+
+  const fullName = player?.full_name?.trim();
+  if (fullName) return fullName;
+
+  return XY_UNKNOWN_PLAYER_NAME;
+}
+
 /**
  * Spread the still-unassigned students across the 8 teams, always topping up
  * the smallest team first so existing manual placements stay untouched.
