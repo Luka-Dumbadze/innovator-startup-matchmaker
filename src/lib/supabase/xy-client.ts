@@ -12,6 +12,10 @@ import type {
   XYVote,
 } from "@/types/xy";
 
+/** Explicit column list so a schema change can never silently drop a field. */
+export const XY_SESSION_COLUMNS =
+  "id, label, is_active, status, current_round, voting_open, created_at, ended_at";
+
 /**
  * Newest live XY session. Both liveness flags are filtered explicitly, and
  * `.maybeSingle()` (never `.single()`) keeps duplicates from crashing reads.
@@ -21,7 +25,7 @@ export async function fetchActiveXySession(
 ): Promise<XYSession | null> {
   const { data, error } = await supabase
     .from("xy_sessions")
-    .select("*")
+    .select(XY_SESSION_COLUMNS)
     .eq("is_active", true)
     .eq("status", XY_STATUS_ACTIVE)
     .order("created_at", { ascending: false })

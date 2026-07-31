@@ -13,6 +13,7 @@ export type XYSessionStatus = "active" | "completed";
 
 export interface XYSession {
   id: string;
+  /** Mentor-facing session name; never blank (DB default: `XY თამაში`). */
   label: string;
   is_active: boolean;
   status: XYSessionStatus;

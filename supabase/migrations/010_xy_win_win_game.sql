@@ -6,7 +6,7 @@
 
 CREATE TABLE IF NOT EXISTS xy_sessions (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  label         TEXT NOT NULL,
+  label         TEXT NOT NULL DEFAULT 'XY თამაში',
   is_active     BOOLEAN NOT NULL DEFAULT TRUE,
   status        TEXT NOT NULL DEFAULT 'active',
   current_round INT NOT NULL DEFAULT 1 CHECK (current_round >= 1),
@@ -21,11 +21,22 @@ CREATE TABLE IF NOT EXISTS xy_sessions (
   )
 );
 
--- Upgrade path for databases created before `status` / `ended_at` existed.
+-- Upgrade path for databases created before `label` / `status` / `ended_at` existed.
 ALTER TABLE xy_sessions
+  ADD COLUMN IF NOT EXISTS label TEXT DEFAULT 'XY თამაში',
   ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
   ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
   ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ DEFAULT NULL;
+
+-- Every screen renders `label`, so it must always hold a non-empty value.
+UPDATE xy_sessions
+SET label = 'XY თამაში'
+WHERE label IS NULL
+   OR btrim(label) = '';
+
+ALTER TABLE xy_sessions
+  ALTER COLUMN label SET DEFAULT 'XY თამაში',
+  ALTER COLUMN label SET NOT NULL;
 
 UPDATE xy_sessions
 SET status = CASE WHEN is_active THEN 'active' ELSE 'completed' END

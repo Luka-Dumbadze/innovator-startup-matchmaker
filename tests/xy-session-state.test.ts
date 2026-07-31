@@ -5,10 +5,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import { fetchActiveXySession } from "@/lib/supabase/xy-client";
 import {
+  XY_DEFAULT_SESSION_LABEL,
+  XY_SESSION_LABEL_MAX,
   XY_STATUS_ACTIVE,
   XY_STATUS_COMPLETED,
   isXySessionLive,
   parseXySessionStatus,
+  resolveXySessionLabel,
   xySessionEndPatch,
   xySessionStartPatch,
 } from "@/lib/xy/session-state";
@@ -71,6 +74,28 @@ describe("session lifecycle patches", () => {
       ended_at: "2026-07-31T18:30:00.000Z",
     });
     expect(isXySessionLive({ ...makeSession(), ...patch })).toBe(false);
+  });
+});
+
+describe("resolveXySessionLabel", () => {
+  it("keeps a mentor-provided name, trimmed", () => {
+    expect(resolveXySessionLabel("  XY თამაში — დღე 3  ")).toBe("XY თამაში — დღე 3");
+  });
+
+  it("falls back to the column default for blank input", () => {
+    expect(resolveXySessionLabel("")).toBe(XY_DEFAULT_SESSION_LABEL);
+    expect(resolveXySessionLabel("   ")).toBe(XY_DEFAULT_SESSION_LABEL);
+    expect(resolveXySessionLabel(null)).toBe(XY_DEFAULT_SESSION_LABEL);
+    expect(resolveXySessionLabel(undefined)).toBe(XY_DEFAULT_SESSION_LABEL);
+  });
+
+  it("caps overly long names", () => {
+    const long = "ა".repeat(XY_SESSION_LABEL_MAX + 25);
+    expect(resolveXySessionLabel(long)).toHaveLength(XY_SESSION_LABEL_MAX);
+  });
+
+  it("matches the SQL default exactly", () => {
+    expect(XY_DEFAULT_SESSION_LABEL).toBe("XY თამაში");
   });
 });
 
@@ -160,7 +185,10 @@ describe("xy_sessions schema and action guards", () => {
   const migration = readSource("supabase/migrations/010_xy_win_win_game.sql");
   const actions = readSource("src/lib/actions/xy-actions.ts");
 
-  it("declares is_active, status and ended_at with explicit defaults", () => {
+  it("declares label, is_active, status and ended_at with explicit defaults", () => {
+    expect(migration).toMatch(
+      new RegExp(`label\\s+TEXT NOT NULL DEFAULT '${XY_DEFAULT_SESSION_LABEL}'`)
+    );
     expect(migration).toMatch(/is_active\s+BOOLEAN NOT NULL DEFAULT TRUE/);
     expect(migration).toMatch(/status\s+TEXT NOT NULL DEFAULT 'active'/);
     expect(migration).toMatch(/ended_at\s+TIMESTAMPTZ DEFAULT NULL/);
@@ -176,12 +204,32 @@ describe("xy_sessions schema and action guards", () => {
 
   it("ships an idempotent upgrade path for existing databases", () => {
     expect(migration).toMatch(
+      new RegExp(
+        `ADD COLUMN IF NOT EXISTS label TEXT DEFAULT '${XY_DEFAULT_SESSION_LABEL}'`
+      )
+    );
+    expect(migration).toMatch(
       /ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'/
     );
     expect(migration).toMatch(
       /ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ DEFAULT NULL/
     );
     expect(migration).toContain("FROM pg_constraint WHERE conname =");
+  });
+
+  it("keeps label non-null and non-blank on existing databases", () => {
+    expect(migration).toMatch(/WHERE label IS NULL\s*\n\s*OR btrim\(label\) = ''/);
+    expect(migration).toMatch(/ALTER COLUMN label SET DEFAULT 'XY თამაში'/);
+    expect(migration).toMatch(/ALTER COLUMN label SET NOT NULL/);
+  });
+
+  it("selects and inserts label through the shared column list", () => {
+    const client = readSource("src/lib/supabase/xy-client.ts");
+    expect(client).toMatch(/XY_SESSION_COLUMNS\s*=\s*\n?\s*"id, label, is_active, status/);
+    expect(client).toContain(".select(XY_SESSION_COLUMNS)");
+    expect(actions).toContain(".select(XY_SESSION_COLUMNS)");
+    expect(actions).toContain("label: cleanLabel");
+    expect(actions).toContain("resolveXySessionLabel(label)");
   });
 
   it("backfills a close timestamp for already retired sessions", () => {

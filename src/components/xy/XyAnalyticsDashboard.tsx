@@ -10,6 +10,7 @@ import {
   resolveRoundNumbers,
   type XYAnalyticsCell,
 } from "@/lib/xy/scoring";
+import { resolveXySessionLabel } from "@/lib/xy/session-state";
 
 function CellBadge({ cell }: { cell: XYAnalyticsCell }) {
   const phone = cell.phoneVote ?? "—";
@@ -121,7 +122,7 @@ export function XyAnalyticsDashboard() {
             XY Analytics · Individual vs Team
           </p>
           <h1 className="font-[family-name:var(--font-noto-georgian)] text-2xl font-black text-white">
-            {live.session.label}
+            {resolveXySessionLabel(live.session.label)}
           </h1>
           <p className="mt-1 font-[family-name:var(--font-noto-georgian)] text-sm text-slate-400">
             🚨 Stealth Defectors: {totals.stealth} · 💚 Secret Altruists:{" "}

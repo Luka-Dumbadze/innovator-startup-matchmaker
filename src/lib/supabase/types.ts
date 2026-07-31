@@ -260,7 +260,8 @@ export type Database = {
         };
         Insert: {
           id?: string;
-          label: string;
+          /** Optional: the column defaults to `XY თამაში`. */
+          label?: string;
           is_active?: boolean;
           status?: "active" | "completed";
           current_round?: number;

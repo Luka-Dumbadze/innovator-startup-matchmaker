@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 
 import { useXyLiveSession } from "@/hooks/useXyLiveSession";
 import { computeStandings, resolveRoundNumbers } from "@/lib/xy/scoring";
+import { resolveXySessionLabel } from "@/lib/xy/session-state";
 
 /**
  * Projector board: team names, cumulative points and each round's paper
@@ -55,7 +56,7 @@ export function XyScoreboard() {
             Win-Win Simulation
           </p>
           <h1 className="font-[family-name:var(--font-noto-georgian)] text-4xl font-black text-white xl:text-5xl">
-            {live.session.label}
+            {resolveXySessionLabel(live.session.label)}
           </h1>
         </div>
         <div

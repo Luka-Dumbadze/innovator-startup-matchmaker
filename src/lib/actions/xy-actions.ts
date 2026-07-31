@@ -3,10 +3,11 @@
 import { revalidatePath } from "next/cache";
 
 import { createAdminSupabaseClient } from "@/lib/supabase/server";
-import { fetchXySnapshot } from "@/lib/supabase/xy-client";
+import { XY_SESSION_COLUMNS, fetchXySnapshot } from "@/lib/supabase/xy-client";
 import { XY_DEFAULT_TEAMS, parseXYVote, scoreRoundForTeams } from "@/lib/xy/scoring";
 import {
   XY_STATUS_ACTIVE,
+  resolveXySessionLabel,
   xySessionEndPatch,
   xySessionStartPatch,
 } from "@/lib/xy/session-state";
@@ -31,13 +32,10 @@ export async function getXySnapshot(): Promise<XYSnapshot> {
 /** Deactivate any live XY session, then create a fresh one with 8 named teams. */
 export async function createXySessionAction(
   label: string
-): Promise<XYActionResult<{ sessionId: string }>> {
+): Promise<XYActionResult<{ sessionId: string; label: string }>> {
   try {
-    const cleanLabel = label.trim();
-    if (!cleanLabel) {
-      return { ok: false, error: "სესიის სახელი აუცილებელია" };
-    }
-
+    // A blank name falls back to the same value as the column default.
+    const cleanLabel = resolveXySessionLabel(label);
     const supabase = createAdminSupabaseClient();
 
     const { error: deactivateError } = await supabase
@@ -58,7 +56,7 @@ export async function createXySessionAction(
         current_round: 1,
         voting_open: false,
       })
-      .select("*")
+      .select(XY_SESSION_COLUMNS)
       .maybeSingle();
 
     if (sessionError || !session) {
@@ -80,7 +78,7 @@ export async function createXySessionAction(
     }
 
     revalidateXyRoutes();
-    return { ok: true, data: { sessionId: session.id } };
+    return { ok: true, data: { sessionId: session.id, label: session.label } };
   } catch (err) {
     return {
       ok: false,

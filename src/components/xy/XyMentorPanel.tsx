@@ -22,6 +22,11 @@ import {
 } from "@/lib/actions/xy-actions";
 import { balanceUnassignedPlayers } from "@/lib/xy/roster";
 import { computeStandings, resolveRoundNumbers } from "@/lib/xy/scoring";
+import {
+  XY_DEFAULT_SESSION_LABEL,
+  XY_SESSION_LABEL_MAX,
+  resolveXySessionLabel,
+} from "@/lib/xy/session-state";
 import type { XYSnapshot, XYVote } from "@/types/xy";
 
 type XyMentorPanelProps = {
@@ -79,10 +84,12 @@ function XyMentorPanelInner({ initial, loadError = null }: XyMentorPanelProps) {
 
   const handleCreateSession = (event: FormEvent) => {
     event.preventDefault();
-    const label = sessionLabel.trim() || `XY თამაში ${new Date().toLocaleDateString()}`;
+    const label = resolveXySessionLabel(
+      sessionLabel || `${XY_DEFAULT_SESSION_LABEL} ${new Date().toLocaleDateString()}`
+    );
     startSessionTransition(async () => {
       const result = await createXySessionAction(label);
-      if (report(result, "სესია შეიქმნა (8 გუნდი)")) {
+      if (report(result, `სესია შეიქმნა: ${label} (8 გუნდი)`)) {
         setSessionLabel("");
         setSelectedRound(1);
         await live.refresh();
@@ -248,7 +255,8 @@ function XyMentorPanelInner({ initial, loadError = null }: XyMentorPanelProps) {
               type="text"
               value={sessionLabel}
               onChange={(e) => setSessionLabel(e.target.value)}
-              placeholder="XY თამაში — დღე 3"
+              placeholder={`${XY_DEFAULT_SESSION_LABEL} — დღე 3`}
+              maxLength={XY_SESSION_LABEL_MAX}
               className="mt-1.5 w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-3 font-[family-name:var(--font-noto-georgian)] text-base text-white outline-none focus:border-teal-500"
             />
           </label>
@@ -279,7 +287,7 @@ function XyMentorPanelInner({ initial, loadError = null }: XyMentorPanelProps) {
             XY · Win-Win Simulation
           </p>
           <h1 className="font-[family-name:var(--font-noto-georgian)] text-2xl font-black text-white">
-            {session.label}
+            {resolveXySessionLabel(session.label)}
           </h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">

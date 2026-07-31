@@ -4,6 +4,17 @@ import type { XYSession, XYSessionStatus } from "@/types/xy";
 export const XY_STATUS_ACTIVE: XYSessionStatus = "active";
 export const XY_STATUS_COMPLETED: XYSessionStatus = "completed";
 
+/** Mirrors the `xy_sessions.label` column default. */
+export const XY_DEFAULT_SESSION_LABEL = "XY თამაში";
+
+export const XY_SESSION_LABEL_MAX = 80;
+
+/** Never persist a blank label — every XY screen renders it as a heading. */
+export function resolveXySessionLabel(label: string | null | undefined): string {
+  const cleaned = (label ?? "").trim().slice(0, XY_SESSION_LABEL_MAX);
+  return cleaned || XY_DEFAULT_SESSION_LABEL;
+}
+
 export function parseXySessionStatus(value: unknown): XYSessionStatus | null {
   return value === "active" || value === "completed" ? value : null;
 }
