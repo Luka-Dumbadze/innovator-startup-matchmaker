@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   LayoutDashboard,
   PlusCircle,
   QrCode,
   History,
   AlertTriangle,
+  Swords,
 } from "lucide-react";
 
 import type { ActiveSessionSnapshot } from "@/lib/actions/admin-actions";
@@ -63,9 +65,18 @@ export function AdminDashboard({
                 </h1>
               </div>
             </div>
-            <p className="hidden text-sm text-slate-500 sm:block">
-              Daily sessions · words · QR join
-            </p>
+            <div className="flex items-center gap-3">
+              <p className="hidden text-sm text-slate-500 sm:block">
+                Daily sessions · words · QR join
+              </p>
+              <Link
+                href="/admin/xy"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-800 transition hover:bg-teal-100"
+              >
+                <Swords className="size-4" />
+                XY Game
+              </Link>
+            </div>
           </div>
         </header>
 

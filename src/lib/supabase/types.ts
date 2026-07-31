@@ -247,6 +247,206 @@ export type Database = {
           },
         ];
       };
+      xy_sessions: {
+        Row: {
+          id: string;
+          label: string;
+          is_active: boolean;
+          current_round: number;
+          voting_open: boolean;
+          created_at: string;
+          ended_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          label: string;
+          is_active?: boolean;
+          current_round?: number;
+          voting_open?: boolean;
+          created_at?: string;
+          ended_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          label?: string;
+          is_active?: boolean;
+          current_round?: number;
+          voting_open?: boolean;
+          created_at?: string;
+          ended_at?: string | null;
+        };
+        Relationships: [];
+      };
+      xy_teams: {
+        Row: {
+          id: string;
+          session_id: string;
+          team_number: number;
+          name: string;
+          color: string;
+        };
+        Insert: {
+          id?: string;
+          session_id: string;
+          team_number: number;
+          name: string;
+          color?: string;
+        };
+        Update: {
+          id?: string;
+          session_id?: string;
+          team_number?: number;
+          name?: string;
+          color?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "xy_teams_session_id_fkey";
+            columns: ["session_id"];
+            isOneToOne: false;
+            referencedRelation: "xy_sessions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      xy_players: {
+        Row: {
+          id: string;
+          session_id: string;
+          player_uid: string;
+          full_name: string;
+          team_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          session_id: string;
+          player_uid: string;
+          full_name: string;
+          team_id?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          session_id?: string;
+          player_uid?: string;
+          full_name?: string;
+          team_id?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "xy_players_session_id_fkey";
+            columns: ["session_id"];
+            isOneToOne: false;
+            referencedRelation: "xy_sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "xy_players_team_id_fkey";
+            columns: ["team_id"];
+            isOneToOne: false;
+            referencedRelation: "xy_teams";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      xy_individual_votes: {
+        Row: {
+          id: string;
+          session_id: string;
+          round_number: number;
+          player_id: string;
+          vote: "X" | "Y";
+          edited_by_mentor: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          session_id: string;
+          round_number: number;
+          player_id: string;
+          vote: "X" | "Y";
+          edited_by_mentor?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          session_id?: string;
+          round_number?: number;
+          player_id?: string;
+          vote?: "X" | "Y";
+          edited_by_mentor?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "xy_individual_votes_session_id_fkey";
+            columns: ["session_id"];
+            isOneToOne: false;
+            referencedRelation: "xy_sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "xy_individual_votes_player_id_fkey";
+            columns: ["player_id"];
+            isOneToOne: false;
+            referencedRelation: "xy_players";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      xy_team_votes: {
+        Row: {
+          id: string;
+          session_id: string;
+          round_number: number;
+          team_id: string;
+          vote: "X" | "Y";
+          points: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          session_id: string;
+          round_number: number;
+          team_id: string;
+          vote: "X" | "Y";
+          points?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          session_id?: string;
+          round_number?: number;
+          team_id?: string;
+          vote?: "X" | "Y";
+          points?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "xy_team_votes_session_id_fkey";
+            columns: ["session_id"];
+            isOneToOne: false;
+            referencedRelation: "xy_sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "xy_team_votes_team_id_fkey";
+            columns: ["team_id"];
+            isOneToOne: false;
+            referencedRelation: "xy_teams";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: {
       [_ in never]: never;
@@ -294,6 +494,33 @@ export type Database = {
           session_id: string;
           voting_open: boolean;
           voting_team_id: string | null;
+        };
+      };
+      xy_join_player: {
+        Args: {
+          p_session_id: string;
+          p_player_uid: string;
+          p_full_name: string;
+        };
+        Returns: {
+          id: string;
+          session_id: string;
+          player_uid: string;
+          full_name: string;
+          team_id: string | null;
+          created_at: string;
+        };
+      };
+      xy_cast_individual_vote: {
+        Args: {
+          p_session_id: string;
+          p_player_uid: string;
+          p_vote: string;
+        };
+        Returns: {
+          round_number: number;
+          player_id: string;
+          vote: "X" | "Y";
         };
       };
     };
