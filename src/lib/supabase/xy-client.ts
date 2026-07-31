@@ -8,7 +8,7 @@ import {
   parseXySessionStatus,
   resolveXySessionLabel,
 } from "@/lib/xy/session-state";
-import { resolveXyPlayerName } from "@/lib/xy/roster";
+import { normalizeXyPlayerRow, resolveXyPlayerName } from "@/lib/xy/roster";
 import type {
   XYIndividualVote,
   XYPlayer,
@@ -149,7 +149,7 @@ type NormalizedList<T> = { data: T[]; error: { message: string } | null };
 async function selectRows<T>(
   explicit: () => PromiseLike<ListResult>,
   wildcard: () => PromiseLike<ListResult>,
-  normalize: (row: Record<string, unknown>) => T
+  normalize: (row: Record<string, unknown>) => T | null
 ): Promise<NormalizedList<T>> {
   const primary = await explicit();
   const result =
@@ -159,12 +159,11 @@ async function selectRows<T>(
     return { data: [], error: result.error };
   }
 
-  return {
-    data: (result.data ?? []).map((row) =>
-      normalize((row ?? {}) as Record<string, unknown>)
-    ),
-    error: null,
-  };
+  const rows = (result.data ?? [])
+    .map((row) => normalize((row ?? {}) as Record<string, unknown>))
+    .filter((row): row is T => row !== null);
+
+  return { data: rows, error: null };
 }
 
 /** Roster read that survives a table holding only one of the two name columns. */
@@ -182,11 +181,7 @@ function fetchXyPlayers(
   return selectRows(
     () => query(XY_PLAYER_COLUMNS),
     () => query("*"),
-    (row) => {
-      const player = row as unknown as XYPlayer;
-      const name = resolveXyPlayerName(player);
-      return { ...player, full_name: name, real_name: name };
-    }
+    normalizeXyPlayerRow
   );
 }
 

@@ -25,6 +25,87 @@ export function resolveXyPlayerName(
   return XY_UNKNOWN_PLAYER_NAME;
 }
 
+/** Shape of a Supabase Realtime `postgres_changes` payload for xy_players. */
+export type XyPlayerChange = {
+  eventType: "INSERT" | "UPDATE" | "DELETE";
+  new?: Record<string, unknown> | null;
+  old?: Record<string, unknown> | null;
+};
+
+/** Turns a raw row (query result or realtime payload) into a roster entry. */
+export function normalizeXyPlayerRow(
+  row: Record<string, unknown> | null | undefined
+): XYPlayer | null {
+  if (!row || typeof row.id !== "string" || !row.id) return null;
+
+  const name = resolveXyPlayerName({
+    full_name: typeof row.full_name === "string" ? row.full_name : "",
+    real_name: typeof row.real_name === "string" ? row.real_name : null,
+  });
+
+  return {
+    id: row.id,
+    session_id: typeof row.session_id === "string" ? row.session_id : "",
+    player_uid: typeof row.player_uid === "string" ? row.player_uid : "",
+    full_name: name,
+    real_name: name,
+    team_id: typeof row.team_id === "string" ? row.team_id : null,
+    created_at: typeof row.created_at === "string" ? row.created_at : "",
+  };
+}
+
+/**
+ * Applies one realtime roster event to the local list so a student who joins on
+ * their phone appears on the mentor's screen before the next refetch lands.
+ *
+ * Returns the original array when nothing changed, keeping React from
+ * re-rendering the roster on every unrelated event.
+ */
+export function applyXyPlayerEvent(
+  players: readonly XYPlayer[],
+  change: XyPlayerChange,
+  sessionId: string
+): XYPlayer[] {
+  if (change.eventType === "DELETE") {
+    const removedId = typeof change.old?.id === "string" ? change.old.id : null;
+    if (!removedId) return players as XYPlayer[];
+
+    const next = players.filter((p) => p.id !== removedId);
+    return next.length === players.length ? (players as XYPlayer[]) : next;
+  }
+
+  const player = normalizeXyPlayerRow(change.new);
+  // Rows from a previous session must never leak into the live roster.
+  if (!player || (player.session_id && player.session_id !== sessionId)) {
+    return players as XYPlayer[];
+  }
+
+  const existingIndex = players.findIndex(
+    (p) => p.id === player.id || (!!p.player_uid && p.player_uid === player.player_uid)
+  );
+
+  if (existingIndex >= 0) {
+    const existing = players[existingIndex];
+    const merged = { ...existing, ...player };
+    if (
+      existing.full_name === merged.full_name &&
+      existing.team_id === merged.team_id &&
+      existing.id === merged.id
+    ) {
+      return players as XYPlayer[];
+    }
+
+    const next = [...players];
+    next[existingIndex] = merged;
+    return next;
+  }
+
+  // The snapshot is ordered by join time; keep the merged row in that order.
+  return [...players, player].sort((a, b) =>
+    a.created_at.localeCompare(b.created_at)
+  );
+}
+
 /**
  * Spread the still-unassigned students across the 8 teams, always topping up
  * the smallest team first so existing manual placements stay untouched.

@@ -4,9 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { AnimatePresence, motion } from "framer-motion";
 import { Loader2, UserRound } from "lucide-react";
 
+import { XyErrorBanner } from "@/components/xy/XyErrorBanner";
 import { useXyLiveSession } from "@/hooks/useXyLiveSession";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { xyCastIndividualVote, xyJoinPlayer } from "@/lib/supabase/xy-client";
+import {
+  XY_GENERIC_JOIN_ERROR,
+  XY_GENERIC_VOTE_ERROR,
+  describeXyError,
+} from "@/lib/xy/errors";
 import { isXySessionLive } from "@/lib/xy/session-state";
 import {
   XY_NAME_MAX,
@@ -21,10 +27,14 @@ import type { XYVote } from "@/types/xy";
 
 export function XyStudentContainer() {
   const live = useXyLiveSession();
+  const { refresh: refreshLive } = live;
   const [playerUid, setPlayerUid] = useState<string | null>(null);
   const [fullName, setFullName] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  // Survives past the name form into the waiting / voting views, so a failed
+  // auto-rejoin cannot disappear into the silent spinner.
+  const [joinError, setJoinError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
   const [voting, setVoting] = useState(false);
   const [voteError, setVoteError] = useState<string | null>(null);
@@ -79,17 +89,28 @@ export function XyStudentContainer() {
           fullName: name,
         });
         setFormError(null);
-        await live.refresh();
+        setJoinError(null);
+        await refreshLive();
       } catch (err) {
         console.error("[xy] join failed", err);
-        joinAttemptRef.current = null;
-        setFormError(err instanceof Error ? err.message : "დაერთება ვერ მოხერხდა");
+        // Leave joinAttemptRef set so the 1.5s poll does not hammer the RPC;
+        // the retry button below is the only way back in for this session.
+        const message = describeXyError(err, XY_GENERIC_JOIN_ERROR);
+        setFormError(message);
+        setJoinError(message);
       } finally {
         setJoining(false);
       }
     },
-    [live, playerUid, sessionId]
+    [refreshLive, playerUid, sessionId]
   );
+
+  const retryJoin = () => {
+    if (!fullName || !sessionId || joining) return;
+    joinAttemptRef.current = `${sessionId}:${fullName}`;
+    setJoinError(null);
+    void join(fullName);
+  };
 
   // Re-join automatically once a session appears (or a new one starts).
   useEffect(() => {
@@ -100,6 +121,10 @@ export function XyStudentContainer() {
     void join(fullName);
   }, [fullName, join, me, playerUid, sessionId]);
 
+  // A successful roster appearance means the previous join error is stale —
+  // compute it rather than clearing state inside an effect.
+  const visibleJoinError = me ? null : joinError;
+
   const handleNameSubmit = (event: FormEvent) => {
     event.preventDefault();
     const cleaned = nameDraft.trim();
@@ -108,6 +133,7 @@ export function XyStudentContainer() {
       return;
     }
     setFormError(null);
+    setJoinError(null);
     saveXyPlayerName(cleaned);
     setFullName(cleaned);
   };
@@ -125,10 +151,10 @@ export function XyStudentContainer() {
       const stored = { sessionId, round, vote };
       saveXyStoredVote(stored);
       setCachedVote(stored);
-      await live.refresh();
+      await refreshLive();
     } catch (err) {
       console.error("[xy] vote failed", err);
-      setVoteError(err instanceof Error ? err.message : "ხმა ვერ გაიგზავნა");
+      setVoteError(describeXyError(err, XY_GENERIC_VOTE_ERROR));
     } finally {
       setVoting(false);
     }
@@ -195,6 +221,29 @@ export function XyStudentContainer() {
         {fullName}
       </p>
 
+      {visibleJoinError || live.error ? (
+        <div>
+          <XyErrorBanner
+            messages={[visibleJoinError, live.error]}
+            onDismiss={() => setJoinError(null)}
+          />
+          {visibleJoinError ? (
+            <button
+              type="button"
+              onClick={retryJoin}
+              disabled={joining || !sessionId}
+              className="mt-2 min-h-12 w-full rounded-2xl border border-rose-500/40 bg-rose-500/10 px-4 py-2.5 font-[family-name:var(--font-noto-georgian)] text-sm font-bold text-rose-100 transition hover:bg-rose-500/20 disabled:opacity-50"
+            >
+              {joining ? (
+                <Loader2 className="mx-auto size-4 animate-spin" />
+              ) : (
+                "ხელახლა ცდა"
+              )}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       <AnimatePresence mode="wait">
         {!votingOpen ? (
           <motion.div
@@ -205,7 +254,9 @@ export function XyStudentContainer() {
             className="rounded-3xl border border-slate-700 bg-slate-900/80 px-5 py-12 text-center"
           >
             <p className="font-[family-name:var(--font-noto-georgian)] text-xl font-bold text-slate-200">
-              ⏳ ველოდებით რაუნდის დაწყებას...
+              {session
+                ? "⏳ ველოდებით რაუნდის დაწყებას..."
+                : "⏳ ველოდებით სესიის დაწყებას..."}
             </p>
             {joining ? (
               <Loader2 className="mx-auto mt-4 size-5 animate-spin text-slate-500" />
