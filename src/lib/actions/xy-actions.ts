@@ -342,6 +342,7 @@ export async function overrideXyIndividualVoteAction(input: {
       return { success: true, data: undefined };
     }
 
+    const editedAt = new Date().toISOString();
     const { error } = await supabase.from("xy_individual_votes").upsert(
       {
         session_id: input.sessionId,
@@ -349,7 +350,8 @@ export async function overrideXyIndividualVoteAction(input: {
         player_id: input.playerId,
         vote: parsed,
         edited_by_mentor: true,
-        updated_at: new Date().toISOString(),
+        edited_at: editedAt,
+        updated_at: editedAt,
       },
       { onConflict: "session_id,round_number,player_id" }
     );

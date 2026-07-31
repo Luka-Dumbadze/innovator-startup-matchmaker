@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   fetchActiveXySession,
+  normalizeXyIndividualVoteRow,
   normalizeXySessionRow,
 } from "@/lib/supabase/xy-client";
 import {
@@ -554,8 +555,117 @@ describe("xy_players name columns", () => {
     expect(client).toContain(
       'XY_PLAYER_COLUMNS =\n  "id, session_id, player_uid, full_name, real_name, team_id, created_at"'
     );
-    expect(client).toContain(".select(XY_PLAYER_COLUMNS)");
-    expect(client).toContain("explicit.error?.code === UNDEFINED_COLUMN");
+    expect(client).toContain("() => query(XY_PLAYER_COLUMNS)");
+    expect(client).toContain("primary.error?.code === UNDEFINED_COLUMN");
+  });
+});
+
+describe("xy_individual_votes mentor-edit audit columns", () => {
+  const migration = readSource("supabase/migrations/010_xy_win_win_game.sql");
+  const client = readSource("src/lib/supabase/xy-client.ts");
+  const actions = readSource("src/lib/actions/xy-actions.ts");
+
+  it("declares edited_by_mentor and edited_at with explicit defaults", () => {
+    const createStart = migration.indexOf(
+      "CREATE TABLE IF NOT EXISTS xy_individual_votes"
+    );
+    const createBlock = migration.slice(
+      createStart,
+      migration.indexOf("ALTER TABLE xy_individual_votes", createStart)
+    );
+
+    expect(createStart).toBeGreaterThan(-1);
+
+    expect(createBlock).toMatch(/edited_by_mentor BOOLEAN NOT NULL DEFAULT FALSE/);
+    expect(createBlock).toMatch(/edited_at\s+TIMESTAMPTZ DEFAULT NULL/);
+  });
+
+  it("adds and normalises both columns on an older table", () => {
+    expect(migration).toContain(
+      "ADD COLUMN IF NOT EXISTS edited_by_mentor BOOLEAN NOT NULL DEFAULT FALSE"
+    );
+    expect(migration).toContain(
+      "ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ DEFAULT NULL"
+    );
+    expect(migration).toContain(
+      "UPDATE xy_individual_votes SET edited_by_mentor = FALSE WHERE edited_by_mentor IS NULL"
+    );
+    expect(migration).toMatch(/ALTER COLUMN edited_by_mentor SET NOT NULL/);
+    expect(migration).toMatch(
+      /SET edited_at = COALESCE\(updated_at, created_at, now\(\)\)\s*\nWHERE edited_by_mentor\s*\n\s*AND edited_at IS NULL/
+    );
+  });
+
+  it("clears the audit pair when the student re-votes, sets it on override", () => {
+    expect(migration).toMatch(/edited_by_mentor = FALSE,\s*\n\s*edited_at = NULL/);
+    expect(actions).toContain("edited_by_mentor: true");
+    expect(actions).toContain("edited_at: editedAt");
+  });
+
+  it("retries with a wildcard select when a column is missing", () => {
+    expect(client).toContain("primary.error?.code === UNDEFINED_COLUMN");
+    expect(client).toContain('() => query("*")');
+  });
+});
+
+describe("normalizeXyIndividualVoteRow", () => {
+  const row = {
+    id: "vote-1",
+    session_id: "session-1",
+    round_number: 2,
+    player_id: "player-1",
+    vote: "X",
+  };
+
+  it("treats a row without the audit columns as a student vote", () => {
+    expect(normalizeXyIndividualVoteRow(row)).toEqual({
+      ...row,
+      edited_by_mentor: false,
+      edited_at: null,
+    });
+  });
+
+  it("keeps the timestamp on a mentor-edited row", () => {
+    expect(
+      normalizeXyIndividualVoteRow({
+        ...row,
+        edited_by_mentor: true,
+        edited_at: "2026-07-31T21:15:00.000Z",
+      })
+    ).toMatchObject({
+      edited_by_mentor: true,
+      edited_at: "2026-07-31T21:15:00.000Z",
+    });
+  });
+
+  it("ignores a stale timestamp on a vote the student re-cast", () => {
+    expect(
+      normalizeXyIndividualVoteRow({
+        ...row,
+        edited_by_mentor: false,
+        edited_at: "2026-07-31T21:15:00.000Z",
+      }).edited_at
+    ).toBeNull();
+  });
+
+  it("coerces junk values instead of throwing", () => {
+    expect(
+      normalizeXyIndividualVoteRow({
+        ...row,
+        vote: "maybe",
+        round_number: "2",
+        edited_by_mentor: "yes",
+        edited_at: 1234,
+      })
+    ).toEqual({
+      id: "vote-1",
+      session_id: "session-1",
+      round_number: 0,
+      player_id: "player-1",
+      vote: "Y",
+      edited_by_mentor: false,
+      edited_at: null,
+    });
   });
 });
 
@@ -609,9 +719,9 @@ describe("xy_individual_votes.player_id", () => {
 
   it("is selected, inserted and returned by every code path", () => {
     expect(client).toContain(
-      'XY_INDIVIDUAL_VOTE_COLUMNS =\n  "id, session_id, round_number, player_id, vote, edited_by_mentor"'
+      'XY_INDIVIDUAL_VOTE_COLUMNS =\n  "id, session_id, round_number, player_id, vote, edited_by_mentor, edited_at"'
     );
-    expect(client).toContain(".select(XY_INDIVIDUAL_VOTE_COLUMNS)");
+    expect(client).toContain("() => query(XY_INDIVIDUAL_VOTE_COLUMNS)");
     expect(client).toMatch(/player_id: raw\?\.player_id \?\? ""/);
 
     // The RPC writes it on the student path; the override action on the mentor path.

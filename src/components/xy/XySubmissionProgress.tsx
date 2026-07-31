@@ -16,6 +16,16 @@ type XySubmissionProgressProps = {
   pendingPlayerId: string | null;
 };
 
+/** Tooltip for the ✎ badge; older rows carry the flag without a timestamp. */
+function formatMentorEdit(editedAt: string | null | undefined): string {
+  const edited = editedAt ? new Date(editedAt) : null;
+  if (!edited || Number.isNaN(edited.getTime())) {
+    return "მენტორის მიერ შესწორებული";
+  }
+
+  return `მენტორმა შეასწორა: ${edited.toLocaleString()}`;
+}
+
 /** Live "38 / 40" counter plus the per-student submitted / pending table. */
 export function XySubmissionProgress({
   round,
@@ -99,7 +109,12 @@ export function XySubmissionProgress({
                         <span className="font-[family-name:var(--font-noto-georgian)] text-emerald-300">
                           ✓ მისცა ხმა ({vote.vote})
                           {vote.edited_by_mentor ? (
-                            <span className="ml-1 text-amber-300">✎</span>
+                            <span
+                              className="ml-1 text-amber-300"
+                              title={formatMentorEdit(vote.edited_at)}
+                            >
+                              ✎
+                            </span>
                           ) : null}
                         </span>
                       ) : (

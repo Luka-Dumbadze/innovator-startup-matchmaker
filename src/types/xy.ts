@@ -53,7 +53,10 @@ export interface XYIndividualVote {
   round_number: number;
   player_id: string;
   vote: XYVote;
+  /** False for votes the student cast themselves, including on older rows. */
   edited_by_mentor: boolean;
+  /** When the mentor overrode the vote; null on student-cast votes. */
+  edited_at?: string | null;
 }
 
 export interface XYTeamVote {

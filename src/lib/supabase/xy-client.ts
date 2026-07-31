@@ -112,9 +112,13 @@ export const XY_TEAM_COLUMNS = "id, session_id, team_number, name, color, create
 export const XY_PLAYER_COLUMNS =
   "id, session_id, player_uid, full_name, real_name, team_id, created_at";
 
-/** `player_id` is the FK to xy_players.id and is always read back explicitly. */
+/**
+ * `player_id` is the FK to xy_players.id and is always read back explicitly.
+ * The mentor-edit audit pair is optional at the database level, so the reader
+ * below falls back to a wildcard select when a column is not there yet.
+ */
 export const XY_INDIVIDUAL_VOTE_COLUMNS =
-  "id, session_id, round_number, player_id, vote, edited_by_mentor";
+  "id, session_id, round_number, player_id, vote, edited_by_mentor, edited_at";
 
 export const XY_TEAM_VOTE_COLUMNS =
   "id, session_id, round_number, team_id, vote, points";
@@ -127,40 +131,102 @@ export const EMPTY_XY_SNAPSHOT: XYSnapshot = {
   teamVotes: [],
 };
 
+type ListResult = {
+  data: unknown[] | null;
+  error: { message: string; code?: string } | null;
+};
+
+type NormalizedList<T> = { data: T[]; error: { message: string } | null };
+
 /**
- * Roster read that survives a database holding only one of the two name
- * columns: the explicit list is tried first, then a wildcard select, and the
- * missing side is filled in from whichever name did come back.
+ * Reads rows by explicit column list, retrying with a wildcard select when the
+ * database is missing one of those columns, then normalizes every row. Columns
+ * are added across migrations, so a query must never be the reason a screen
+ * fails to load.
  */
-async function fetchXyPlayers(
-  supabase: SupabaseClient<Database>,
-  sessionId: string
-): Promise<{ data: XYPlayer[] | null; error: { message: string } | null }> {
-  const explicit = await supabase
-    .from("xy_players")
-    .select(XY_PLAYER_COLUMNS)
-    .eq("session_id", sessionId)
-    .order("created_at", { ascending: true });
+async function selectRows<T>(
+  explicit: () => PromiseLike<ListResult>,
+  wildcard: () => PromiseLike<ListResult>,
+  normalize: (row: Record<string, unknown>) => T
+): Promise<NormalizedList<T>> {
+  const primary = await explicit();
+  const result =
+    primary.error?.code === UNDEFINED_COLUMN ? await wildcard() : primary;
 
-  const rows =
-    explicit.error?.code === UNDEFINED_COLUMN
-      ? await supabase
-          .from("xy_players")
-          .select("*")
-          .eq("session_id", sessionId)
-          .order("created_at", { ascending: true })
-      : explicit;
-
-  if (rows.error) {
-    return { data: null, error: rows.error };
+  if (result.error) {
+    return { data: [], error: result.error };
   }
 
-  const players = ((rows.data ?? []) as XYPlayer[]).map((player) => {
-    const name = resolveXyPlayerName(player);
-    return { ...player, full_name: name, real_name: name };
-  });
+  return {
+    data: (result.data ?? []).map((row) =>
+      normalize((row ?? {}) as Record<string, unknown>)
+    ),
+    error: null,
+  };
+}
 
-  return { data: players, error: null };
+/** Roster read that survives a table holding only one of the two name columns. */
+function fetchXyPlayers(
+  supabase: SupabaseClient<Database>,
+  sessionId: string
+): Promise<NormalizedList<XYPlayer>> {
+  const query = (columns: string) =>
+    supabase
+      .from("xy_players")
+      .select(columns)
+      .eq("session_id", sessionId)
+      .order("created_at", { ascending: true });
+
+  return selectRows(
+    () => query(XY_PLAYER_COLUMNS),
+    () => query("*"),
+    (row) => {
+      const player = row as unknown as XYPlayer;
+      const name = resolveXyPlayerName(player);
+      return { ...player, full_name: name, real_name: name };
+    }
+  );
+}
+
+/**
+ * Fills in the mentor-edit audit fields a row may not carry. An absent or null
+ * `edited_by_mentor` means the student cast the vote themselves, and `edited_at`
+ * only ever holds a value on rows the mentor actually touched.
+ */
+export function normalizeXyIndividualVoteRow(
+  row: Record<string, unknown>
+): XYIndividualVote {
+  const editedByMentor = row.edited_by_mentor === true;
+
+  return {
+    id: typeof row.id === "string" ? row.id : "",
+    session_id: typeof row.session_id === "string" ? row.session_id : "",
+    round_number: typeof row.round_number === "number" ? row.round_number : 0,
+    player_id: typeof row.player_id === "string" ? row.player_id : "",
+    vote: row.vote === "X" ? "X" : "Y",
+    edited_by_mentor: editedByMentor,
+    edited_at:
+      editedByMentor && typeof row.edited_at === "string" ? row.edited_at : null,
+  };
+}
+
+/** Vote read that tolerates a table without the mentor-edit audit columns. */
+function fetchXyIndividualVotes(
+  supabase: SupabaseClient<Database>,
+  sessionId: string
+): Promise<NormalizedList<XYIndividualVote>> {
+  const query = (columns: string) =>
+    supabase
+      .from("xy_individual_votes")
+      .select(columns)
+      .eq("session_id", sessionId)
+      .order("player_id", { ascending: true });
+
+  return selectRows(
+    () => query(XY_INDIVIDUAL_VOTE_COLUMNS),
+    () => query("*"),
+    normalizeXyIndividualVoteRow
+  );
 }
 
 /** One read powering the student, mentor, scoreboard and analytics screens. */
@@ -179,11 +245,7 @@ export async function fetchXySnapshot(
       .eq("session_id", session.id)
       .order("team_number", { ascending: true }),
     fetchXyPlayers(supabase, session.id),
-    supabase
-      .from("xy_individual_votes")
-      .select(XY_INDIVIDUAL_VOTE_COLUMNS)
-      .eq("session_id", session.id)
-      .order("player_id", { ascending: true }),
+    fetchXyIndividualVotes(supabase, session.id),
     supabase
       .from("xy_team_votes")
       .select(XY_TEAM_VOTE_COLUMNS)
@@ -199,8 +261,8 @@ export async function fetchXySnapshot(
   return {
     session,
     teams: (teamsRes.data ?? []) as XYTeam[],
-    players: (playersRes.data ?? []) as XYPlayer[],
-    individualVotes: (individualRes.data ?? []) as XYIndividualVote[],
+    players: playersRes.data,
+    individualVotes: individualRes.data,
     teamVotes: (teamVotesRes.data ?? []) as XYTeamVote[],
   };
 }

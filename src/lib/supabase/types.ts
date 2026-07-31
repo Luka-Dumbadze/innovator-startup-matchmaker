@@ -369,6 +369,7 @@ export type Database = {
           player_id: string;
           vote: "X" | "Y";
           edited_by_mentor: boolean;
+          edited_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -379,6 +380,7 @@ export type Database = {
           player_id: string;
           vote: "X" | "Y";
           edited_by_mentor?: boolean;
+          edited_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -389,6 +391,7 @@ export type Database = {
           player_id?: string;
           vote?: "X" | "Y";
           edited_by_mentor?: boolean;
+          edited_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };

@@ -198,7 +198,10 @@ CREATE TABLE IF NOT EXISTS xy_individual_votes (
   round_number INT NOT NULL CHECK (round_number >= 1),
   player_id    UUID NOT NULL REFERENCES xy_players (id) ON DELETE CASCADE,
   vote         TEXT NOT NULL CHECK (vote IN ('X', 'Y')),
+  -- `edited_by_mentor` flags the row; `edited_at` records when that happened
+  -- and stays NULL for votes the student cast themselves.
   edited_by_mentor BOOLEAN NOT NULL DEFAULT FALSE,
+  edited_at    TIMESTAMPTZ DEFAULT NULL,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT uq_xy_individual_votes UNIQUE (session_id, round_number, player_id)
@@ -210,8 +213,23 @@ CREATE TABLE IF NOT EXISTS xy_individual_votes (
 ALTER TABLE xy_individual_votes
   ADD COLUMN IF NOT EXISTS player_id UUID,
   ADD COLUMN IF NOT EXISTS edited_by_mentor BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ DEFAULT NULL,
   ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+-- ADD COLUMN IF NOT EXISTS skips a column that already exists as nullable, so
+-- the flag is normalised separately: an unknown edit state means "not edited".
+UPDATE xy_individual_votes SET edited_by_mentor = FALSE WHERE edited_by_mentor IS NULL;
+
+ALTER TABLE xy_individual_votes
+  ALTER COLUMN edited_by_mentor SET DEFAULT FALSE,
+  ALTER COLUMN edited_by_mentor SET NOT NULL;
+
+-- Rows flagged before edited_at existed get their best-known edit timestamp.
+UPDATE xy_individual_votes
+SET edited_at = COALESCE(updated_at, created_at, now())
+WHERE edited_by_mentor
+  AND edited_at IS NULL;
 
 -- A vote with no voter cannot be attributed to a student, so it cannot be
 -- analysed or exported — drop those before restoring the NOT NULL guarantee.
@@ -432,7 +450,10 @@ BEGIN
   ON CONFLICT (session_id, round_number, player_id)
   DO UPDATE SET
     vote = EXCLUDED.vote,
+    -- The student overwrote whatever the mentor had entered, so the row is
+    -- no longer a mentor edit.
     edited_by_mentor = FALSE,
+    edited_at = NULL,
     updated_at = now();
 
   RETURN jsonb_build_object(
