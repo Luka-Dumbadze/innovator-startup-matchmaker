@@ -247,7 +247,7 @@ function XyMentorPanelInner({ initial, loadError = null }: XyMentorPanelProps) {
         </p>
 
         <XyErrorBanner
-          messages={[loadError, actionError, live.error]}
+          messages={[loadError, actionError, live.error, ...live.warnings]}
           onDismiss={() => setActionError(null)}
         />
 
@@ -323,7 +323,7 @@ function XyMentorPanelInner({ initial, loadError = null }: XyMentorPanelProps) {
       </header>
 
       <XyErrorBanner
-        messages={[loadError, actionError, live.error]}
+        messages={[loadError, actionError, live.error, ...live.warnings]}
         onDismiss={() => setActionError(null)}
       />
 

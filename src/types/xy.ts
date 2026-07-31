@@ -64,8 +64,13 @@ export interface XYTeamVote {
   session_id: string;
   round_number: number;
   team_id: string;
+  /** Snapshot of the team at scoring time; null on rows written before it. */
+  team_number?: number | null;
+  team_name?: string | null;
   vote: XYVote;
   points: number;
+  /** Mirror of `points` for readers that use the longer column name. */
+  points_awarded?: number | null;
 }
 
 /** Everything the XY screens need in one read. */
@@ -75,6 +80,8 @@ export interface XYSnapshot {
   players: XYPlayer[];
   individualVotes: XYIndividualVote[];
   teamVotes: XYTeamVote[];
+  /** Non-fatal load problems, surfaced in the mentor panel's error banner. */
+  warnings: string[];
 }
 
 /** Defection classification comparing team paper vote vs student phone vote. */

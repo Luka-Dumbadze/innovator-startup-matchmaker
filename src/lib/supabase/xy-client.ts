@@ -120,8 +120,9 @@ export const XY_PLAYER_COLUMNS =
 export const XY_INDIVIDUAL_VOTE_COLUMNS =
   "id, session_id, round_number, player_id, vote, edited_by_mentor, edited_at";
 
+/** `team_id` identifies the row; the rest are the denormalized mirrors. */
 export const XY_TEAM_VOTE_COLUMNS =
-  "id, session_id, round_number, team_id, vote, points";
+  "id, session_id, round_number, team_id, team_number, team_name, vote, points, points_awarded";
 
 export const EMPTY_XY_SNAPSHOT: XYSnapshot = {
   session: null,
@@ -129,6 +130,7 @@ export const EMPTY_XY_SNAPSHOT: XYSnapshot = {
   players: [],
   individualVotes: [],
   teamVotes: [],
+  warnings: [],
 };
 
 type ListResult = {
@@ -229,6 +231,52 @@ function fetchXyIndividualVotes(
   );
 }
 
+/**
+ * Fills in whichever half of each mirrored pair the row is missing, so a table
+ * keyed by team number scores exactly like one keyed by team id.
+ */
+export function normalizeXyTeamVoteRow(
+  row: Record<string, unknown>
+): XYTeamVote {
+  const points =
+    typeof row.points === "number"
+      ? row.points
+      : typeof row.points_awarded === "number"
+        ? row.points_awarded
+        : 0;
+
+  return {
+    id: typeof row.id === "string" ? row.id : "",
+    session_id: typeof row.session_id === "string" ? row.session_id : "",
+    round_number: typeof row.round_number === "number" ? row.round_number : 0,
+    team_id: typeof row.team_id === "string" ? row.team_id : "",
+    team_number: typeof row.team_number === "number" ? row.team_number : null,
+    team_name: typeof row.team_name === "string" ? row.team_name : null,
+    vote: row.vote === "X" ? "X" : "Y",
+    points,
+    points_awarded: points,
+  };
+}
+
+/**
+ * Paper decisions are the only read the XY screens can survive without: if the
+ * table is missing or shaped differently, the scoreboard shows zero points
+ * rather than the whole panel failing, and the reason is returned as a warning.
+ */
+async function fetchXyTeamVotes(
+  supabase: SupabaseClient<Database>,
+  sessionId: string
+): Promise<NormalizedList<XYTeamVote>> {
+  const query = (columns: string) =>
+    supabase.from("xy_team_votes").select(columns).eq("session_id", sessionId);
+
+  return selectRows(
+    () => query(XY_TEAM_VOTE_COLUMNS),
+    () => query("*"),
+    normalizeXyTeamVoteRow
+  );
+}
+
 /** One read powering the student, mentor, scoreboard and analytics screens. */
 export async function fetchXySnapshot(
   supabase: SupabaseClient<Database>
@@ -246,16 +294,14 @@ export async function fetchXySnapshot(
       .order("team_number", { ascending: true }),
     fetchXyPlayers(supabase, session.id),
     fetchXyIndividualVotes(supabase, session.id),
-    supabase
-      .from("xy_team_votes")
-      .select(XY_TEAM_VOTE_COLUMNS)
-      .eq("session_id", session.id),
+    fetchXyTeamVotes(supabase, session.id),
   ]);
 
-  const firstError =
-    teamsRes.error ?? playersRes.error ?? individualRes.error ?? teamVotesRes.error;
-  if (firstError) {
-    throw new Error(firstError.message);
+  // Session, roster and phone votes drive every screen, so a failure there is
+  // still fatal; a broken paper-vote read only costs the points column.
+  const fatalError = teamsRes.error ?? playersRes.error ?? individualRes.error;
+  if (fatalError) {
+    throw new Error(fatalError.message);
   }
 
   return {
@@ -263,7 +309,10 @@ export async function fetchXySnapshot(
     teams: (teamsRes.data ?? []) as XYTeam[],
     players: playersRes.data,
     individualVotes: individualRes.data,
-    teamVotes: (teamVotesRes.data ?? []) as XYTeamVote[],
+    teamVotes: teamVotesRes.data,
+    warnings: teamVotesRes.error
+      ? [`გუნდების ქულები ვერ ჩაიტვირთა: ${teamVotesRes.error.message}`]
+      : [],
   };
 }
 

@@ -5,8 +5,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   fetchActiveXySession,
+  fetchXySnapshot,
   normalizeXyIndividualVoteRow,
   normalizeXySessionRow,
+  normalizeXyTeamVoteRow,
 } from "@/lib/supabase/xy-client";
 import {
   XY_UNKNOWN_PLAYER_NAME,
@@ -557,6 +559,230 @@ describe("xy_players name columns", () => {
     );
     expect(client).toContain("() => query(XY_PLAYER_COLUMNS)");
     expect(client).toContain("primary.error?.code === UNDEFINED_COLUMN");
+  });
+});
+
+describe("xy_team_votes schema and reads", () => {
+  const migration = readSource("supabase/migrations/010_xy_win_win_game.sql");
+  const client = readSource("src/lib/supabase/xy-client.ts");
+
+  it("declares the identity column and both mirrored pairs", () => {
+    const createStart = migration.indexOf("CREATE TABLE IF NOT EXISTS xy_team_votes");
+    const createBlock = migration.slice(
+      createStart,
+      migration.indexOf("-- Upgrade path for a table that carries only one side", createStart)
+    );
+
+    expect(createStart).toBeGreaterThan(-1);
+    for (const column of [
+      /id\s+UUID PRIMARY KEY/,
+      /session_id\s+UUID NOT NULL REFERENCES xy_sessions/,
+      /round_number\s+INT NOT NULL/,
+      /team_id\s+UUID NOT NULL REFERENCES xy_teams \(id\) ON DELETE CASCADE/,
+      /team_number\s+INT/,
+      /team_name\s+TEXT/,
+      /vote\s+TEXT NOT NULL CHECK/,
+      /points\s+INT NOT NULL DEFAULT 0/,
+      /points_awarded INT DEFAULT NULL/,
+      /created_at\s+TIMESTAMPTZ NOT NULL DEFAULT now\(\)/,
+      /updated_at\s+TIMESTAMPTZ NOT NULL DEFAULT now\(\)/,
+    ]) {
+      expect(createBlock).toMatch(column);
+    }
+
+    expect(createBlock).toContain(
+      "CONSTRAINT uq_xy_team_votes UNIQUE (session_id, round_number, team_id)"
+    );
+  });
+
+  it("re-runs safely and resolves either write shape", () => {
+    expect(migration).toContain("ADD COLUMN IF NOT EXISTS team_number INT");
+    expect(migration).toContain("ADD COLUMN IF NOT EXISTS team_name TEXT");
+    expect(migration).toContain("ADD COLUMN IF NOT EXISTS points_awarded INT DEFAULT NULL");
+
+    // A row written by team number gets its FK filled in, and vice versa.
+    expect(migration).toMatch(/SET team_id = t\.id[\s\S]*?WHERE v\.team_id IS NULL/);
+    expect(migration).toMatch(/SET team_number = t\.team_number,\s*\n\s*team_name = t\.name/);
+    expect(migration).toContain("CREATE OR REPLACE FUNCTION xy_team_votes_sync_team()");
+    expect(migration).toMatch(
+      /CREATE TRIGGER trg_xy_team_votes_sync_team\s*\n\s*BEFORE INSERT OR UPDATE ON xy_team_votes/
+    );
+  });
+
+  it("keeps mentor scores instead of deleting them to satisfy the FK", () => {
+    expect(migration).not.toMatch(/DELETE FROM xy_team_votes/);
+    expect(migration).toContain(
+      "IF NOT EXISTS (SELECT 1 FROM xy_team_votes WHERE team_id IS NULL) THEN"
+    );
+    expect(migration).toContain(
+      "SELECT 1 FROM pg_constraint WHERE conname = 'xy_team_votes_team_id_fkey'"
+    );
+  });
+
+  it("refreshes the snapshots when a team is renamed", () => {
+    expect(migration).toContain(
+      "CREATE OR REPLACE FUNCTION xy_teams_propagate_identity()"
+    );
+    expect(migration).toMatch(
+      /CREATE TRIGGER trg_xy_teams_propagate_identity\s*\n\s*AFTER UPDATE OF name, team_number ON xy_teams/
+    );
+  });
+
+  it("has RLS with a public read policy and realtime registration", () => {
+    expect(migration).toContain("ALTER TABLE xy_team_votes ENABLE ROW LEVEL SECURITY");
+    expect(migration).toContain("ALTER TABLE xy_team_votes REPLICA IDENTITY FULL");
+
+    const policyLoop = migration.slice(
+      migration.indexOf("DROP POLICY IF EXISTS %I ON %I") - 400
+    );
+    expect(policyLoop).toContain("v_table || '_select_all'");
+
+    const tableLists = migration.match(
+      /'xy_sessions', 'xy_teams', 'xy_players', 'xy_individual_votes', 'xy_team_votes'/g
+    );
+    // Once for the realtime publication, once for the RLS policy loop.
+    expect(tableLists).toHaveLength(2);
+  });
+
+  it("selects both spellings and retries with a wildcard", () => {
+    expect(client).toContain(
+      'XY_TEAM_VOTE_COLUMNS =\n  "id, session_id, round_number, team_id, team_number, team_name, vote, points, points_awarded"'
+    );
+    expect(client).toContain("() => query(XY_TEAM_VOTE_COLUMNS)");
+  });
+});
+
+describe("fetchXySnapshot degradation", () => {
+  type TableOutcome = {
+    data?: unknown[];
+    error?: { message: string; code?: string };
+  };
+
+  function buildSnapshotStub(outcomes: Record<string, TableOutcome>) {
+    const supabase = {
+      from: (table: string) => {
+        const outcome = outcomes[table] ?? {};
+        const result = { data: outcome.data ?? [], error: outcome.error ?? null };
+
+        const builder: Record<string, unknown> = {
+          select: () => builder,
+          eq: () => builder,
+          order: () => builder,
+          limit: () => builder,
+          maybeSingle: async () => ({
+            data: (outcome.data ?? [])[0] ?? null,
+            error: outcome.error ?? null,
+          }),
+          // List queries are awaited on the builder itself.
+          then: (resolve: (value: unknown) => unknown) => Promise.resolve(resolve(result)),
+        };
+
+        return builder;
+      },
+    };
+
+    return supabase as unknown as Parameters<typeof fetchXySnapshot>[0];
+  }
+
+  const session = makeSession();
+
+  it("keeps the panel alive when the paper votes cannot be read", async () => {
+    const snapshot = await fetchXySnapshot(
+      buildSnapshotStub({
+        xy_sessions: { data: [session] },
+        xy_teams: { data: [] },
+        xy_players: { data: [] },
+        xy_individual_votes: { data: [] },
+        xy_team_votes: {
+          error: { message: 'relation "xy_team_votes" does not exist', code: "42P01" },
+        },
+      })
+    );
+
+    expect(snapshot.session).toMatchObject({ id: session.id });
+    expect(snapshot.teamVotes).toEqual([]);
+    expect(snapshot.warnings).toHaveLength(1);
+    expect(snapshot.warnings[0]).toContain("xy_team_votes");
+  });
+
+  it("still fails loudly when the roster cannot be read", async () => {
+    await expect(
+      fetchXySnapshot(
+        buildSnapshotStub({
+          xy_sessions: { data: [session] },
+          xy_teams: { data: [] },
+          xy_players: { error: { message: "roster is gone", code: "42P01" } },
+          xy_individual_votes: { data: [] },
+          xy_team_votes: { data: [] },
+        })
+      )
+    ).rejects.toThrow("roster is gone");
+  });
+
+  it("reports no warnings on a healthy read", async () => {
+    const snapshot = await fetchXySnapshot(
+      buildSnapshotStub({
+        xy_sessions: { data: [session] },
+        xy_teams: { data: [] },
+        xy_players: { data: [] },
+        xy_individual_votes: { data: [] },
+        xy_team_votes: {
+          data: [
+            {
+              id: "tv-1",
+              session_id: session.id,
+              round_number: 1,
+              team_id: "team-1",
+              vote: "Y",
+              points: 10,
+            },
+          ],
+        },
+      })
+    );
+
+    expect(snapshot.warnings).toEqual([]);
+    expect(snapshot.teamVotes[0]).toMatchObject({ points: 10, points_awarded: 10 });
+  });
+});
+
+describe("normalizeXyTeamVoteRow", () => {
+  const row = {
+    id: "tv-1",
+    session_id: "session-1",
+    round_number: 3,
+    team_id: "team-1",
+    vote: "Y",
+    points: -20,
+  };
+
+  it("mirrors points into points_awarded", () => {
+    expect(normalizeXyTeamVoteRow(row)).toEqual({
+      ...row,
+      team_number: null,
+      team_name: null,
+      points_awarded: -20,
+    });
+  });
+
+  it("scores a row that only carries points_awarded", () => {
+    const legacy = normalizeXyTeamVoteRow({
+      id: "tv-2",
+      session_id: "session-1",
+      round_number: 3,
+      team_id: "team-2",
+      team_number: 2,
+      team_name: "მწვანეები",
+      vote: "X",
+      points_awarded: 10,
+    });
+
+    expect(legacy.points).toBe(10);
+    expect(legacy.team_name).toBe("მწვანეები");
+  });
+
+  it("defaults to zero points rather than NaN", () => {
+    expect(normalizeXyTeamVoteRow({ id: "tv-3" }).points).toBe(0);
   });
 });
 

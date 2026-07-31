@@ -418,8 +418,11 @@ export type Database = {
           session_id: string;
           round_number: number;
           team_id: string;
+          team_number: number | null;
+          team_name: string | null;
           vote: "X" | "Y";
           points: number;
+          points_awarded: number | null;
           created_at: string;
           updated_at: string;
         };
@@ -427,9 +430,12 @@ export type Database = {
           id?: string;
           session_id: string;
           round_number: number;
-          team_id: string;
+          team_id?: string;
+          team_number?: number | null;
+          team_name?: string | null;
           vote: "X" | "Y";
           points?: number;
+          points_awarded?: number | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -438,8 +444,11 @@ export type Database = {
           session_id?: string;
           round_number?: number;
           team_id?: string;
+          team_number?: number | null;
+          team_name?: string | null;
           vote?: "X" | "Y";
           points?: number;
+          points_awarded?: number | null;
           created_at?: string;
           updated_at?: string;
         };

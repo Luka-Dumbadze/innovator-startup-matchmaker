@@ -278,6 +278,8 @@ export async function saveXyTeamRoundVotesAction(input: {
     const { round, results } = scoreRoundForTeams(entries);
 
     if (results.length > 0) {
+      // team_number / team_name / points_awarded are filled in by the table's
+      // sync trigger, which also resolves rows written by team number.
       const { error: upsertError } = await supabase.from("xy_team_votes").upsert(
         results.map((r) => ({
           session_id: input.sessionId,
@@ -285,6 +287,7 @@ export async function saveXyTeamRoundVotesAction(input: {
           team_id: r.teamId,
           vote: r.vote,
           points: r.points,
+          points_awarded: r.points,
           updated_at: new Date().toISOString(),
         })),
         { onConflict: "session_id,round_number,team_id" }

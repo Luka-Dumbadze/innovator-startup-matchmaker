@@ -263,17 +263,155 @@ CREATE INDEX IF NOT EXISTS idx_xy_individual_votes_player
   ON xy_individual_votes (player_id);
 
 -- One paper decision per team per round (mentor entered).
+--
+-- `team_id` stays the identity of the row (FK + cascade + upsert key), while
+-- `team_number` / `team_name` are snapshots of the team at scoring time so
+-- exports and offline tooling can read a round without joining xy_teams.
+-- `points_awarded` mirrors `points`; triggers below keep every pair in step.
 CREATE TABLE IF NOT EXISTS xy_team_votes (
-  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id   UUID NOT NULL REFERENCES xy_sessions (id) ON DELETE CASCADE,
-  round_number INT NOT NULL CHECK (round_number >= 1),
-  team_id      UUID NOT NULL REFERENCES xy_teams (id) ON DELETE CASCADE,
-  vote         TEXT NOT NULL CHECK (vote IN ('X', 'Y')),
-  points       INT NOT NULL DEFAULT 0,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id     UUID NOT NULL REFERENCES xy_sessions (id) ON DELETE CASCADE,
+  round_number   INT NOT NULL CHECK (round_number >= 1),
+  team_id        UUID NOT NULL REFERENCES xy_teams (id) ON DELETE CASCADE,
+  team_number    INT,
+  team_name      TEXT,
+  vote           TEXT NOT NULL CHECK (vote IN ('X', 'Y')),
+  points         INT NOT NULL DEFAULT 0,
+  points_awarded INT DEFAULT NULL,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT uq_xy_team_votes UNIQUE (session_id, round_number, team_id)
 );
+
+-- Upgrade path for a table that carries only one side of each pair.
+ALTER TABLE xy_team_votes
+  ADD COLUMN IF NOT EXISTS team_id UUID,
+  ADD COLUMN IF NOT EXISTS team_number INT,
+  ADD COLUMN IF NOT EXISTS team_name TEXT,
+  ADD COLUMN IF NOT EXISTS points INT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS points_awarded INT DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+-- Rows written by team number get their FK resolved…
+UPDATE xy_team_votes v
+SET team_id = t.id
+FROM xy_teams t
+WHERE v.team_id IS NULL
+  AND t.session_id = v.session_id
+  AND t.team_number = v.team_number;
+
+-- …and rows written by team id get their snapshot filled in.
+UPDATE xy_team_votes v
+SET team_number = t.team_number,
+    team_name = t.name
+FROM xy_teams t
+WHERE v.team_id = t.id
+  AND (v.team_number IS DISTINCT FROM t.team_number OR v.team_name IS DISTINCT FROM t.name);
+
+UPDATE xy_team_votes
+SET points = points_awarded
+WHERE points_awarded IS NOT NULL
+  AND points = 0
+  AND points_awarded <> 0;
+
+UPDATE xy_team_votes
+SET points_awarded = points
+WHERE points_awarded IS NULL;
+
+-- Mentor-entered scores are never deleted to satisfy a constraint: the FK is
+-- only tightened once every row actually resolves to a team.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM xy_team_votes WHERE team_id IS NULL) THEN
+    ALTER TABLE xy_team_votes ALTER COLUMN team_id SET NOT NULL;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'xy_team_votes_team_id_fkey'
+  ) THEN
+    ALTER TABLE xy_team_votes
+      ADD CONSTRAINT xy_team_votes_team_id_fkey
+      FOREIGN KEY (team_id) REFERENCES xy_teams (id) ON DELETE CASCADE;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_xy_team_votes') THEN
+    ALTER TABLE xy_team_votes
+      ADD CONSTRAINT uq_xy_team_votes UNIQUE (session_id, round_number, team_id);
+  END IF;
+END;
+$$;
+
+/**
+ * Accepts a team vote written either way: given a team number it resolves the
+ * FK, given a team id it refreshes the name/number snapshot, and it keeps
+ * points and points_awarded equal.
+ */
+CREATE OR REPLACE FUNCTION xy_team_votes_sync_team()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+DECLARE
+  v_team xy_teams%ROWTYPE;
+BEGIN
+  IF NEW.team_id IS NULL AND NEW.team_number IS NOT NULL THEN
+    SELECT * INTO v_team
+    FROM xy_teams
+    WHERE session_id = NEW.session_id
+      AND team_number = NEW.team_number;
+
+    NEW.team_id := v_team.id;
+  ELSIF NEW.team_id IS NOT NULL THEN
+    SELECT * INTO v_team FROM xy_teams WHERE id = NEW.team_id;
+  END IF;
+
+  IF v_team.id IS NOT NULL THEN
+    NEW.team_number := v_team.team_number;
+    NEW.team_name := v_team.name;
+  END IF;
+
+  IF TG_OP = 'UPDATE' AND NEW.points IS DISTINCT FROM OLD.points THEN
+    NEW.points_awarded := NEW.points;
+  ELSIF TG_OP = 'UPDATE' AND NEW.points_awarded IS DISTINCT FROM OLD.points_awarded THEN
+    NEW.points := NEW.points_awarded;
+  ELSIF NEW.points_awarded IS NOT NULL AND COALESCE(NEW.points, 0) = 0 THEN
+    NEW.points := NEW.points_awarded;
+  ELSE
+    NEW.points_awarded := COALESCE(NEW.points, 0);
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_xy_team_votes_sync_team ON xy_team_votes;
+CREATE TRIGGER trg_xy_team_votes_sync_team
+  BEFORE INSERT OR UPDATE ON xy_team_votes
+  FOR EACH ROW
+  EXECUTE FUNCTION xy_team_votes_sync_team();
+
+/** Renaming or renumbering a team refreshes the snapshots it already left. */
+CREATE OR REPLACE FUNCTION xy_teams_propagate_identity()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  UPDATE xy_team_votes
+  SET team_number = NEW.team_number,
+      team_name = NEW.name
+  WHERE team_id = NEW.id;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_xy_teams_propagate_identity ON xy_teams;
+CREATE TRIGGER trg_xy_teams_propagate_identity
+  AFTER UPDATE OF name, team_number ON xy_teams
+  FOR EACH ROW
+  EXECUTE FUNCTION xy_teams_propagate_identity();
 
 CREATE INDEX IF NOT EXISTS idx_xy_team_votes_round
   ON xy_team_votes (session_id, round_number);
@@ -330,6 +468,10 @@ BEGIN
   END LOOP;
 END;
 $$;
+
+-- xy_team_votes deliberately keeps only the public SELECT policy created above:
+-- the paper decisions are the scoreboard itself, so writes stay with the
+-- mentor's service-role client rather than anyone holding the anon key.
 
 -- Teams are roster scaffolding rather than game results: the mentor panel and
 -- any offline tooling may create, rename and re-colour them without auth.
