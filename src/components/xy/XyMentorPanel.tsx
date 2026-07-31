@@ -5,6 +5,7 @@ import Link from "next/link";
 import { BarChart3, Loader2, MonitorPlay, Rocket } from "lucide-react";
 
 import { ToastProvider, useToast } from "@/components/admin/ToastProvider";
+import { XyErrorBanner } from "@/components/xy/XyErrorBanner";
 import { XyRoundControls } from "@/components/xy/XyRoundControls";
 import { XySubmissionProgress } from "@/components/xy/XySubmissionProgress";
 import { XyTeamPaperVotes } from "@/components/xy/XyTeamPaperVotes";
@@ -52,6 +53,9 @@ function XyMentorPanelInner({ initial, loadError = null }: XyMentorPanelProps) {
   const [pendingPlayerId, setPendingPlayerId] = useState<string | null>(null);
   const [pendingTeamId, setPendingTeamId] = useState<string | null>(null);
   const [sessionLabel, setSessionLabel] = useState("");
+  // Toasts auto-dismiss; a failed mutation also stays pinned so the exact DB
+  // error is still on screen when the mentor comes back to it.
+  const [actionError, setActionError] = useState<string | null>(null);
   const [roundPending, startRoundTransition] = useTransition();
   const [sessionPending, startSessionTransition] = useTransition();
   const [balancePending, startBalanceTransition] = useTransition();
@@ -74,12 +78,14 @@ function XyMentorPanelInner({ initial, loadError = null }: XyMentorPanelProps) {
   );
 
   const report = (result: XYActionResult<unknown>, successMessage: string) => {
-    if (result.ok) {
+    if (result.success) {
+      setActionError(null);
       toast.push(successMessage, "success");
     } else {
+      setActionError(result.error);
       toast.push(result.error, "error");
     }
-    return result.ok;
+    return result.success;
   };
 
   const handleCreateSession = (event: FormEvent) => {
@@ -163,7 +169,8 @@ function XyMentorPanelInner({ initial, loadError = null }: XyMentorPanelProps) {
           assignment.playerId,
           assignment.teamId
         );
-        if (!result.ok) {
+        if (!result.success) {
+          setActionError(result.error);
           toast.push(result.error, "error");
           break;
         }
@@ -212,7 +219,8 @@ function XyMentorPanelInner({ initial, loadError = null }: XyMentorPanelProps) {
         round: selectedRound,
         votes,
       });
-      if (result.ok) {
+      if (result.success) {
+        setActionError(null);
         toast.push(
           result.data.complete
             ? `რაუნდი #${selectedRound} დაითვლა`
@@ -220,6 +228,7 @@ function XyMentorPanelInner({ initial, loadError = null }: XyMentorPanelProps) {
           "success"
         );
       } else {
+        setActionError(result.error);
         toast.push(result.error, "error");
       }
       setPendingTeamId(null);
@@ -237,11 +246,10 @@ function XyMentorPanelInner({ initial, loadError = null }: XyMentorPanelProps) {
           აქტიური სესია არ არის. შექმენით ახალი — ავტომატურად დაემატება 8 გუნდი.
         </p>
 
-        {loadError ? (
-          <p className="mb-4 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
-            {loadError}
-          </p>
-        ) : null}
+        <XyErrorBanner
+          messages={[loadError, actionError, live.error]}
+          onDismiss={() => setActionError(null)}
+        />
 
         <form
           onSubmit={handleCreateSession}
@@ -314,11 +322,10 @@ function XyMentorPanelInner({ initial, loadError = null }: XyMentorPanelProps) {
         </div>
       </header>
 
-      {live.error ? (
-        <p className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
-          {live.error}
-        </p>
-      ) : null}
+      <XyErrorBanner
+        messages={[loadError, actionError, live.error]}
+        onDismiss={() => setActionError(null)}
+      />
 
       <XyRoundControls
         round={selectedRound}

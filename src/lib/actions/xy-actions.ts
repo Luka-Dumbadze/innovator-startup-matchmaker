@@ -3,19 +3,26 @@
 import { revalidatePath } from "next/cache";
 
 import { createAdminSupabaseClient } from "@/lib/supabase/server";
-import { XY_SESSION_COLUMNS, fetchXySnapshot } from "@/lib/supabase/xy-client";
+import { fetchXySnapshot } from "@/lib/supabase/xy-client";
 import { XY_DEFAULT_TEAMS, parseXYVote, scoreRoundForTeams } from "@/lib/xy/scoring";
 import {
   XY_STATUS_ACTIVE,
   resolveXySessionLabel,
   xySessionEndPatch,
-  xySessionStartPatch,
 } from "@/lib/xy/session-state";
 import type { XYSnapshot, XYVote } from "@/types/xy";
 
 export type XYActionResult<T = void> =
-  | { ok: true; data: T }
-  | { ok: false; error: string };
+  | { success: true; data: T }
+  | { success: false; error: string };
+
+/**
+ * Every mentor mutation runs through the service-role client: the XY tables are
+ * public-read with no auth, so RLS would otherwise reject these writes.
+ */
+function getSupabaseServerAdminClient() {
+  return createAdminSupabaseClient();
+}
 
 function revalidateXyRoutes(): void {
   revalidatePath("/admin/xy");
@@ -26,17 +33,23 @@ function revalidateXyRoutes(): void {
 
 /** Server-side snapshot for the mentor panel's initial render. */
 export async function getXySnapshot(): Promise<XYSnapshot> {
-  return fetchXySnapshot(createAdminSupabaseClient());
+  return fetchXySnapshot(getSupabaseServerAdminClient());
 }
 
-/** Deactivate any live XY session, then create a fresh one with 8 named teams. */
+/**
+ * Deactivate any live XY session, then create a fresh one with 8 named teams.
+ *
+ * The session and its teams are created as a unit: if the team insert fails the
+ * session row is removed again, so the mentor never lands on a half-built
+ * session that renders as "no active session".
+ */
 export async function createXySessionAction(
   label: string
 ): Promise<XYActionResult<{ sessionId: string; label: string }>> {
   try {
     // A blank name falls back to the same value as the column default.
-    const cleanLabel = resolveXySessionLabel(label);
-    const supabase = createAdminSupabaseClient();
+    const resolvedLabel = resolveXySessionLabel(label);
+    const supabase = getSupabaseServerAdminClient();
 
     const { error: deactivateError } = await supabase
       .from("xy_sessions")
@@ -45,43 +58,64 @@ export async function createXySessionAction(
       .eq("status", XY_STATUS_ACTIVE);
 
     if (deactivateError) {
-      return { ok: false, error: deactivateError.message };
+      return {
+        success: false,
+        error: `არსებული სესია ვერ დაიხურა: ${deactivateError.message}`,
+      };
     }
 
     const { data: session, error: sessionError } = await supabase
       .from("xy_sessions")
       .insert({
-        label: cleanLabel,
-        ...xySessionStartPatch(),
+        label: resolvedLabel,
+        is_active: true,
+        status: XY_STATUS_ACTIVE,
         current_round: 1,
         voting_open: false,
+        ended_at: null,
       })
-      .select(XY_SESSION_COLUMNS)
+      .select("*")
       .maybeSingle();
 
     if (sessionError || !session) {
-      return { ok: false, error: sessionError?.message ?? "სესია ვერ შეიქმნა" };
+      return {
+        success: false,
+        error: sessionError?.message ?? "სესია ვერ შეიქმნა (insert returned no row)",
+      };
     }
 
-    const { error: teamsError } = await supabase.from("xy_teams").insert(
-      XY_DEFAULT_TEAMS.map((team, index) => ({
-        session_id: session.id,
-        team_number: index + 1,
-        name: team.name,
-        color: team.color,
-      }))
-    );
+    const { data: teams, error: teamsError } = await supabase
+      .from("xy_teams")
+      .insert(
+        XY_DEFAULT_TEAMS.map((team, index) => ({
+          session_id: session.id,
+          team_number: index + 1,
+          name: team.name,
+          color: team.color,
+        }))
+      )
+      .select("id");
 
-    if (teamsError) {
+    const createdTeams = teams?.length ?? 0;
+
+    if (teamsError || createdTeams !== XY_DEFAULT_TEAMS.length) {
       await supabase.from("xy_sessions").delete().eq("id", session.id);
-      return { ok: false, error: `გუნდები ვერ შეიქმნა: ${teamsError.message}` };
+      return {
+        success: false,
+        error: teamsError
+          ? `გუნდები ვერ შეიქმნა: ${teamsError.message}`
+          : `გუნდები ვერ შეიქმნა: ${createdTeams}/${XY_DEFAULT_TEAMS.length} ჩაიწერა`,
+      };
     }
 
     revalidateXyRoutes();
-    return { ok: true, data: { sessionId: session.id, label: session.label } };
+    return {
+      success: true,
+      data: { sessionId: session.id, label: resolvedLabel },
+    };
   } catch (err) {
     return {
-      ok: false,
+      success: false,
       error: err instanceof Error ? err.message : "მოულოდნელი შეცდომა",
     };
   }
@@ -94,24 +128,24 @@ export async function renameXyTeamAction(
   try {
     const cleanName = name.trim();
     if (!teamId || !cleanName) {
-      return { ok: false, error: "გუნდის სახელი აუცილებელია" };
+      return { success: false, error: "გუნდის სახელი აუცილებელია" };
     }
 
-    const supabase = createAdminSupabaseClient();
+    const supabase = getSupabaseServerAdminClient();
     const { error } = await supabase
       .from("xy_teams")
       .update({ name: cleanName })
       .eq("id", teamId);
 
     if (error) {
-      return { ok: false, error: error.message };
+      return { success: false, error: error.message };
     }
 
     revalidateXyRoutes();
-    return { ok: true, data: undefined };
+    return { success: true, data: undefined };
   } catch (err) {
     return {
-      ok: false,
+      success: false,
       error: err instanceof Error ? err.message : "მოულოდნელი შეცდომა",
     };
   }
@@ -124,24 +158,24 @@ export async function assignXyPlayerTeamAction(
 ): Promise<XYActionResult> {
   try {
     if (!playerId) {
-      return { ok: false, error: "playerId აუცილებელია" };
+      return { success: false, error: "playerId აუცილებელია" };
     }
 
-    const supabase = createAdminSupabaseClient();
+    const supabase = getSupabaseServerAdminClient();
     const { error } = await supabase
       .from("xy_players")
       .update({ team_id: teamId })
       .eq("id", playerId);
 
     if (error) {
-      return { ok: false, error: error.message };
+      return { success: false, error: error.message };
     }
 
     revalidateXyRoutes();
-    return { ok: true, data: undefined };
+    return { success: true, data: undefined };
   } catch (err) {
     return {
-      ok: false,
+      success: false,
       error: err instanceof Error ? err.message : "მოულოდნელი შეცდომა",
     };
   }
@@ -158,15 +192,15 @@ export async function setXyRoundStateAction(input: {
 }): Promise<XYActionResult<{ round: number; votingOpen: boolean }>> {
   try {
     if (!input.sessionId) {
-      return { ok: false, error: "sessionId აუცილებელია" };
+      return { success: false, error: "sessionId აუცილებელია" };
     }
     if (!Number.isInteger(input.round) || input.round < 1) {
-      return { ok: false, error: "რაუნდის ნომერი არავალიდურია" };
+      return { success: false, error: "რაუნდის ნომერი არავალიდურია" };
     }
 
     // Only a live session may open or close rounds, so both liveness flags are
     // part of the WHERE clause rather than trusted from the client.
-    const supabase = createAdminSupabaseClient();
+    const supabase = getSupabaseServerAdminClient();
     const { data, error } = await supabase
       .from("xy_sessions")
       .update({ current_round: input.round, voting_open: input.votingOpen })
@@ -177,18 +211,18 @@ export async function setXyRoundStateAction(input: {
       .maybeSingle();
 
     if (error) {
-      return { ok: false, error: error.message };
+      return { success: false, error: error.message };
     }
 
     if (!data) {
-      return { ok: false, error: "XY სესია აქტიური არ არის — შექმენით ახალი" };
+      return { success: false, error: "XY სესია აქტიური არ არის — შექმენით ახალი" };
     }
 
     revalidateXyRoutes();
-    return { ok: true, data: { round: input.round, votingOpen: input.votingOpen } };
+    return { success: true, data: { round: input.round, votingOpen: input.votingOpen } };
   } catch (err) {
     return {
-      ok: false,
+      success: false,
       error: err instanceof Error ? err.message : "მოულოდნელი შეცდომა",
     };
   }
@@ -207,13 +241,13 @@ export async function saveXyTeamRoundVotesAction(input: {
 }): Promise<XYActionResult<{ scored: number; complete: boolean }>> {
   try {
     if (!input.sessionId) {
-      return { ok: false, error: "sessionId აუცილებელია" };
+      return { success: false, error: "sessionId აუცილებელია" };
     }
     if (!Number.isInteger(input.round) || input.round < 1) {
-      return { ok: false, error: "რაუნდის ნომერი არავალიდურია" };
+      return { success: false, error: "რაუნდის ნომერი არავალიდურია" };
     }
 
-    const supabase = createAdminSupabaseClient();
+    const supabase = getSupabaseServerAdminClient();
 
     const entries: { teamId: string; vote: XYVote }[] = [];
     const clearedTeamIds: string[] = [];
@@ -237,7 +271,7 @@ export async function saveXyTeamRoundVotesAction(input: {
         .in("team_id", clearedTeamIds);
 
       if (deleteError) {
-        return { ok: false, error: deleteError.message };
+        return { success: false, error: deleteError.message };
       }
     }
 
@@ -257,15 +291,15 @@ export async function saveXyTeamRoundVotesAction(input: {
       );
 
       if (upsertError) {
-        return { ok: false, error: upsertError.message };
+        return { success: false, error: upsertError.message };
       }
     }
 
     revalidateXyRoutes();
-    return { ok: true, data: { scored: results.length, complete: round.complete } };
+    return { success: true, data: { scored: results.length, complete: round.complete } };
   } catch (err) {
     return {
-      ok: false,
+      success: false,
       error: err instanceof Error ? err.message : "მოულოდნელი შეცდომა",
     };
   }
@@ -283,13 +317,13 @@ export async function overrideXyIndividualVoteAction(input: {
 }): Promise<XYActionResult> {
   try {
     if (!input.sessionId || !input.playerId) {
-      return { ok: false, error: "sessionId და playerId აუცილებელია" };
+      return { success: false, error: "sessionId და playerId აუცილებელია" };
     }
     if (!Number.isInteger(input.round) || input.round < 1) {
-      return { ok: false, error: "რაუნდის ნომერი არავალიდურია" };
+      return { success: false, error: "რაუნდის ნომერი არავალიდურია" };
     }
 
-    const supabase = createAdminSupabaseClient();
+    const supabase = getSupabaseServerAdminClient();
     const parsed = parseXYVote(input.vote);
 
     if (!parsed) {
@@ -301,11 +335,11 @@ export async function overrideXyIndividualVoteAction(input: {
         .eq("player_id", input.playerId);
 
       if (error) {
-        return { ok: false, error: error.message };
+        return { success: false, error: error.message };
       }
 
       revalidateXyRoutes();
-      return { ok: true, data: undefined };
+      return { success: true, data: undefined };
     }
 
     const { error } = await supabase.from("xy_individual_votes").upsert(
@@ -321,14 +355,14 @@ export async function overrideXyIndividualVoteAction(input: {
     );
 
     if (error) {
-      return { ok: false, error: error.message };
+      return { success: false, error: error.message };
     }
 
     revalidateXyRoutes();
-    return { ok: true, data: undefined };
+    return { success: true, data: undefined };
   } catch (err) {
     return {
-      ok: false,
+      success: false,
       error: err instanceof Error ? err.message : "მოულოდნელი შეცდომა",
     };
   }
@@ -340,10 +374,10 @@ export async function endXySessionAction(
 ): Promise<XYActionResult> {
   try {
     if (!sessionId) {
-      return { ok: false, error: "sessionId აუცილებელია" };
+      return { success: false, error: "sessionId აუცილებელია" };
     }
 
-    const supabase = createAdminSupabaseClient();
+    const supabase = getSupabaseServerAdminClient();
     const { error } = await supabase
       .from("xy_sessions")
       .update({ ...xySessionEndPatch(), voting_open: false })
@@ -352,14 +386,14 @@ export async function endXySessionAction(
       .eq("status", XY_STATUS_ACTIVE);
 
     if (error) {
-      return { ok: false, error: error.message };
+      return { success: false, error: error.message };
     }
 
     revalidateXyRoutes();
-    return { ok: true, data: undefined };
+    return { success: true, data: undefined };
   } catch (err) {
     return {
-      ok: false,
+      success: false,
       error: err instanceof Error ? err.message : "მოულოდნელი შეცდომა",
     };
   }

@@ -3,7 +3,10 @@ import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { fetchActiveXySession } from "@/lib/supabase/xy-client";
+import {
+  fetchActiveXySession,
+  normalizeXySessionRow,
+} from "@/lib/supabase/xy-client";
 import {
   XY_DEFAULT_SESSION_LABEL,
   XY_SESSION_LABEL_MAX,
@@ -108,76 +111,203 @@ describe("parseXySessionStatus", () => {
   });
 });
 
-describe("fetchActiveXySession", () => {
-  function buildSupabaseStub(row: XYSession | null) {
-    const calls: [string, unknown][] = [];
-
-    const builder = {
-      select: vi.fn(() => builder),
-      eq: vi.fn((column: string, value: unknown) => {
-        calls.push([column, value]);
-        return builder;
-      }),
-      order: vi.fn(() => builder),
-      limit: vi.fn(() => builder),
-      maybeSingle: vi.fn(async () => ({ data: row, error: null })),
+describe("normalizeXySessionRow", () => {
+  it("derives status for a database created before the column existed", () => {
+    const legacy = {
+      id: "xy-1",
+      label: "XY თამაში",
+      is_active: true,
+      current_round: 2,
+      voting_open: true,
+      created_at: "2026-07-31T09:00:00.000Z",
+      ended_at: null,
     };
 
-    const supabase = { from: vi.fn(() => builder) };
-    return { supabase, builder, calls };
+    expect(normalizeXySessionRow(legacy)).toMatchObject({
+      id: "xy-1",
+      is_active: true,
+      status: "active",
+      current_round: 2,
+      voting_open: true,
+    });
+  });
+
+  it("derives is_active from status when only status is present", () => {
+    expect(normalizeXySessionRow({ id: "xy-1", status: "active" })).toMatchObject({
+      is_active: true,
+      status: "active",
+    });
+    expect(normalizeXySessionRow({ id: "xy-1", status: "completed" })).toMatchObject({
+      is_active: false,
+      status: "completed",
+    });
+  });
+
+  it("keeps a drifted pair intact so the liveness check can reject it", () => {
+    const drifted = normalizeXySessionRow({
+      id: "xy-1",
+      is_active: true,
+      status: "completed",
+    });
+
+    expect(drifted).toMatchObject({ is_active: true, status: "completed" });
+    expect(isXySessionLive(drifted)).toBe(false);
+  });
+
+  it("falls back to safe defaults for missing fields", () => {
+    expect(normalizeXySessionRow({ id: "xy-1" })).toEqual({
+      id: "xy-1",
+      label: XY_DEFAULT_SESSION_LABEL,
+      is_active: true,
+      status: "active",
+      current_round: 1,
+      voting_open: false,
+      created_at: "",
+      ended_at: null,
+    });
+  });
+
+  it("rejects rows without an id", () => {
+    expect(normalizeXySessionRow(null)).toBeNull();
+    expect(normalizeXySessionRow({})).toBeNull();
+    expect(normalizeXySessionRow({ id: "" })).toBeNull();
+    expect(normalizeXySessionRow("nope")).toBeNull();
+  });
+});
+
+describe("fetchActiveXySession", () => {
+  type QueryOutcome = {
+    data: unknown;
+    error: { message: string; code?: string } | null;
+  };
+
+  /** Each call to `.from()` consumes the next queued outcome. */
+  function buildSupabaseStub(outcomes: QueryOutcome[]) {
+    const filters: [string, unknown][] = [];
+    const orders: unknown[] = [];
+    const limits: unknown[] = [];
+    let call = 0;
+
+    const supabase = {
+      from: vi.fn(() => {
+        const outcome = outcomes[call] ?? { data: null, error: null };
+        call += 1;
+
+        const builder = {
+          select: vi.fn(() => builder),
+          eq: vi.fn((column: string, value: unknown) => {
+            filters.push([column, value]);
+            return builder;
+          }),
+          order: vi.fn((column: string, opts: unknown) => {
+            orders.push([column, opts]);
+            return builder;
+          }),
+          limit: vi.fn((n: unknown) => {
+            limits.push(n);
+            return builder;
+          }),
+          maybeSingle: vi.fn(async () => outcome),
+        };
+
+        return builder;
+      }),
+    };
+
+    return { supabase, filters, orders, limits, callCount: () => call };
   }
 
-  it("filters on is_active AND status, newest first", async () => {
-    const row = makeSession();
-    const { supabase, builder, calls } = buildSupabaseStub(row);
-
-    const result = await fetchActiveXySession(
-      supabase as unknown as Parameters<typeof fetchActiveXySession>[0]
+  function run(supabase: unknown) {
+    return fetchActiveXySession(
+      supabase as Parameters<typeof fetchActiveXySession>[0]
     );
+  }
 
-    expect(result).toEqual(row);
-    expect(calls).toEqual([
+  it("finds the newest is_active session without a second query", async () => {
+    const row = makeSession();
+    const { supabase, filters, orders, limits, callCount } = buildSupabaseStub([
+      { data: row, error: null },
+    ]);
+
+    await expect(run(supabase)).resolves.toEqual(row);
+    expect(filters).toEqual([["is_active", true]]);
+    expect(orders).toEqual([["created_at", { ascending: false }]]);
+    expect(limits).toEqual([1]);
+    expect(callCount()).toBe(1);
+  });
+
+  it("falls back to status = active when is_active matches nothing", async () => {
+    const row = makeSession();
+    const { supabase, filters, callCount } = buildSupabaseStub([
+      { data: null, error: null },
+      { data: row, error: null },
+    ]);
+
+    await expect(run(supabase)).resolves.toEqual(row);
+    expect(filters).toEqual([
       ["is_active", true],
       ["status", "active"],
     ]);
-    expect(builder.order).toHaveBeenCalledWith("created_at", { ascending: false });
-    expect(builder.limit).toHaveBeenCalledWith(1);
-    expect(builder.maybeSingle).toHaveBeenCalledTimes(1);
+    expect(callCount()).toBe(2);
   });
 
-  it("returns null when no session is live", async () => {
-    const { supabase } = buildSupabaseStub(null);
-    await expect(
-      fetchActiveXySession(
-        supabase as unknown as Parameters<typeof fetchActiveXySession>[0]
-      )
-    ).resolves.toBeNull();
-  });
-
-  it("discards a drifted row even if the query returned one", async () => {
-    const { supabase } = buildSupabaseStub(makeSession({ status: "completed" }));
-    await expect(
-      fetchActiveXySession(
-        supabase as unknown as Parameters<typeof fetchActiveXySession>[0]
-      )
-    ).resolves.toBeNull();
-  });
-
-  it("surfaces query errors", async () => {
-    const builder = {
-      select: vi.fn(() => builder),
-      eq: vi.fn(() => builder),
-      order: vi.fn(() => builder),
-      limit: vi.fn(() => builder),
-      maybeSingle: vi.fn(async () => ({ data: null, error: { message: "boom" } })),
+  it("tolerates a database where one of the columns does not exist yet", async () => {
+    const legacyRow = {
+      id: "xy-legacy",
+      label: "XY თამაში",
+      is_active: true,
+      current_round: 1,
+      voting_open: false,
+      created_at: "2026-07-31T09:00:00.000Z",
+      ended_at: null,
     };
-    const supabase = { from: vi.fn(() => builder) };
 
-    await expect(
-      fetchActiveXySession(
-        supabase as unknown as Parameters<typeof fetchActiveXySession>[0]
-      )
-    ).rejects.toThrow("boom");
+    const { supabase } = buildSupabaseStub([
+      { data: legacyRow, error: null },
+      { data: null, error: { message: "column does not exist", code: "42703" } },
+    ]);
+
+    await expect(run(supabase)).resolves.toMatchObject({
+      id: "xy-legacy",
+      status: "active",
+    });
+
+    // And the mirror case: no is_active column, session found via status.
+    const { supabase: statusOnly, callCount } = buildSupabaseStub([
+      { data: null, error: { message: "column does not exist", code: "42703" } },
+      { data: { id: "xy-status", status: "active" }, error: null },
+    ]);
+
+    await expect(run(statusOnly)).resolves.toMatchObject({ id: "xy-status" });
+    expect(callCount()).toBe(2);
+  });
+
+  it("returns null when neither lookup finds a live session", async () => {
+    const { supabase, callCount } = buildSupabaseStub([
+      { data: null, error: null },
+      { data: null, error: null },
+    ]);
+
+    await expect(run(supabase)).resolves.toBeNull();
+    expect(callCount()).toBe(2);
+  });
+
+  it("discards a drifted row from both lookups", async () => {
+    const drifted = makeSession({ status: "completed" });
+    const { supabase } = buildSupabaseStub([
+      { data: drifted, error: null },
+      { data: drifted, error: null },
+    ]);
+
+    await expect(run(supabase)).resolves.toBeNull();
+  });
+
+  it("surfaces real query errors instead of hiding them", async () => {
+    const { supabase } = buildSupabaseStub([
+      { data: null, error: { message: "boom", code: "42P01" } },
+    ]);
+
+    await expect(run(supabase)).rejects.toThrow("boom");
   });
 });
 
@@ -223,13 +353,56 @@ describe("xy_sessions schema and action guards", () => {
     expect(migration).toMatch(/ALTER COLUMN label SET NOT NULL/);
   });
 
-  it("selects and inserts label through the shared column list", () => {
-    const client = readSource("src/lib/supabase/xy-client.ts");
-    expect(client).toMatch(/XY_SESSION_COLUMNS\s*=\s*\n?\s*"id, label, is_active, status/);
-    expect(client).toContain(".select(XY_SESSION_COLUMNS)");
-    expect(actions).toContain(".select(XY_SESSION_COLUMNS)");
-    expect(actions).toContain("label: cleanLabel");
+  it("resolves and inserts label explicitly", () => {
     expect(actions).toContain("resolveXySessionLabel(label)");
+    expect(actions).toContain("label: resolvedLabel");
+  });
+
+  it("creates the session with every lifecycle field spelled out", () => {
+    const insertBlock = actions.slice(
+      actions.indexOf('.from("xy_sessions")\n      .insert({'),
+      actions.indexOf('.select("*")')
+    );
+
+    for (const field of [
+      "label: resolvedLabel",
+      "is_active: true",
+      "status: XY_STATUS_ACTIVE",
+      "current_round: 1",
+      "voting_open: false",
+      "ended_at: null",
+    ]) {
+      expect(insertBlock).toContain(field);
+    }
+  });
+
+  it("runs every mentor mutation through the service-role client", () => {
+    expect(actions).toContain("function getSupabaseServerAdminClient()");
+    expect(actions).toContain("return createAdminSupabaseClient();");
+
+    // One import + one call inside the helper: no action builds its own client.
+    expect(actions.match(/createAdminSupabaseClient/g)).toHaveLength(2);
+
+    // Every client an action gets hold of is the service-role one.
+    for (const match of actions.matchAll(/const supabase = (\w+)\(\)/g)) {
+      expect(match[1]).toBe("getSupabaseServerAdminClient");
+    }
+    expect(actions).toContain("fetchXySnapshot(getSupabaseServerAdminClient())");
+  });
+
+  it("rolls the session back when the 8 default teams cannot be created", () => {
+    expect(actions).toContain('.from("xy_teams")');
+    expect(actions).toContain("createdTeams !== XY_DEFAULT_TEAMS.length");
+    expect(actions).toMatch(
+      /await supabase\.from\("xy_sessions"\)\.delete\(\)\.eq\("id", session\.id\)/
+    );
+    expect(actions).toContain("გუნდები ვერ შეიქმნა:");
+  });
+
+  it("reports failures as { success: false, error }", () => {
+    expect(actions).toContain("| { success: true; data: T }");
+    expect(actions).toContain("| { success: false; error: string }");
+    expect(actions).not.toMatch(/\bok: (true|false)\b/);
   });
 
   it("backfills a close timestamp for already retired sessions", () => {
@@ -258,10 +431,23 @@ describe("xy_sessions schema and action guards", () => {
     expect(activeStatusFilters?.length).toBe(3);
   });
 
-  it("never flips is_active without status", () => {
-    expect(actions).not.toMatch(/is_active:\s*(true|false)/);
-    expect(actions).toContain("xySessionStartPatch()");
+  it("never flips is_active without setting status alongside it", () => {
+    for (const match of actions.matchAll(/is_active:\s*(true|false)/g)) {
+      const start = Math.max(0, (match.index ?? 0) - 200);
+      const nearby = actions.slice(start, (match.index ?? 0) + 200);
+      expect(nearby).toMatch(/status:/);
+    }
+
+    // Closing a session always goes through the shared patch.
     expect(actions).toContain("xySessionEndPatch()");
+  });
+
+  it("creates sessions with the same flags xySessionStartPatch() defines", () => {
+    const patch = xySessionStartPatch();
+    expect(patch).toMatchObject({ is_active: true, status: "active" });
+
+    expect(actions).toContain("is_active: true");
+    expect(actions).toContain("status: XY_STATUS_ACTIVE");
   });
 });
 

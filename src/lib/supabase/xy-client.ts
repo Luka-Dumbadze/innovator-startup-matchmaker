@@ -1,7 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "./types";
-import { XY_STATUS_ACTIVE, isXySessionLive } from "@/lib/xy/session-state";
+import {
+  XY_STATUS_ACTIVE,
+  XY_STATUS_COMPLETED,
+  isXySessionLive,
+  parseXySessionStatus,
+  resolveXySessionLabel,
+} from "@/lib/xy/session-state";
 import type {
   XYIndividualVote,
   XYPlayer,
@@ -12,33 +18,91 @@ import type {
   XYVote,
 } from "@/types/xy";
 
-/** Explicit column list so a schema change can never silently drop a field. */
-export const XY_SESSION_COLUMNS =
-  "id, label, is_active, status, current_round, voting_open, created_at, ended_at";
+/** PostgREST code for "column does not exist" — a DB that predates a migration. */
+const UNDEFINED_COLUMN = "42703";
 
 /**
- * Newest live XY session. Both liveness flags are filtered explicitly, and
- * `.maybeSingle()` (never `.single()`) keeps duplicates from crashing reads.
+ * Fills in whichever liveness flag a row is missing, so a database created
+ * before `status` existed still yields a usable session. Rows where both flags
+ * are present but disagree are left untouched for `isXySessionLive` to reject.
+ */
+export function normalizeXySessionRow(row: unknown): XYSession | null {
+  if (!row || typeof row !== "object") return null;
+
+  const raw = row as Record<string, unknown>;
+  if (typeof raw.id !== "string" || !raw.id) return null;
+
+  const parsedStatus = parseXySessionStatus(raw.status);
+  const isActive =
+    typeof raw.is_active === "boolean"
+      ? raw.is_active
+      : parsedStatus !== XY_STATUS_COMPLETED;
+
+  return {
+    id: raw.id,
+    label: resolveXySessionLabel(
+      typeof raw.label === "string" ? raw.label : null
+    ),
+    is_active: isActive,
+    status: parsedStatus ?? (isActive ? XY_STATUS_ACTIVE : XY_STATUS_COMPLETED),
+    current_round:
+      typeof raw.current_round === "number" && raw.current_round >= 1
+        ? raw.current_round
+        : 1,
+    voting_open: raw.voting_open === true,
+    created_at: typeof raw.created_at === "string" ? raw.created_at : "",
+    ended_at: typeof raw.ended_at === "string" ? raw.ended_at : null,
+  };
+}
+
+type SessionQueryResult = {
+  data: unknown;
+  error: { message: string; code?: string } | null;
+};
+
+function resolveSessionQuery(result: SessionQueryResult): XYSession | null {
+  if (result.error) {
+    // The column is absent on this database; the other lookup still applies.
+    if (result.error.code === UNDEFINED_COLUMN) return null;
+    throw new Error(result.error.message);
+  }
+
+  const session = normalizeXySessionRow(result.data);
+  return session && isXySessionLive(session) ? session : null;
+}
+
+/**
+ * Newest live XY session.
+ *
+ * `is_active` is the primary flag; if nothing matches (or the column predates
+ * this schema) the same lookup is retried against `status`, so a half-migrated
+ * database still finds its session instead of rendering "no active session".
+ * Always `.maybeSingle()` so duplicate live rows cannot crash the read.
  */
 export async function fetchActiveXySession(
   supabase: SupabaseClient<Database>
 ): Promise<XYSession | null> {
-  const { data, error } = await supabase
-    .from("xy_sessions")
-    .select(XY_SESSION_COLUMNS)
-    .eq("is_active", true)
-    .eq("status", XY_STATUS_ACTIVE)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const byIsActive = resolveSessionQuery(
+    await supabase
+      .from("xy_sessions")
+      .select("*")
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+  );
 
-  if (error) {
-    throw new Error(error.message);
-  }
+  if (byIsActive) return byIsActive;
 
-  if (!data) return null;
-
-  return isXySessionLive(data) ? data : null;
+  return resolveSessionQuery(
+    await supabase
+      .from("xy_sessions")
+      .select("*")
+      .eq("status", XY_STATUS_ACTIVE)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+  );
 }
 
 export const XY_TEAM_COLUMNS = "id, session_id, team_number, name, color, created_at";
