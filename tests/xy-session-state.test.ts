@@ -160,9 +160,10 @@ describe("xy_sessions schema and action guards", () => {
   const migration = readSource("supabase/migrations/010_xy_win_win_game.sql");
   const actions = readSource("src/lib/actions/xy-actions.ts");
 
-  it("declares is_active and status with active defaults", () => {
+  it("declares is_active, status and ended_at with explicit defaults", () => {
     expect(migration).toMatch(/is_active\s+BOOLEAN NOT NULL DEFAULT TRUE/);
     expect(migration).toMatch(/status\s+TEXT NOT NULL DEFAULT 'active'/);
+    expect(migration).toMatch(/ended_at\s+TIMESTAMPTZ DEFAULT NULL/);
   });
 
   it("constrains status values and keeps them in lockstep with is_active", () => {
@@ -177,7 +178,16 @@ describe("xy_sessions schema and action guards", () => {
     expect(migration).toMatch(
       /ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'/
     );
+    expect(migration).toMatch(
+      /ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ DEFAULT NULL/
+    );
     expect(migration).toContain("FROM pg_constraint WHERE conname =");
+  });
+
+  it("backfills a close timestamp for already retired sessions", () => {
+    expect(migration).toMatch(
+      /SET ended_at = COALESCE\(ended_at, now\(\)\)\s*\n\s*WHERE is_active = FALSE\s*\n\s*AND ended_at IS NULL/
+    );
   });
 
   it("indexes the canonical live-session lookup", () => {

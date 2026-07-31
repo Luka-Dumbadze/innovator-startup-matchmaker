@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS xy_sessions (
   current_round INT NOT NULL DEFAULT 1 CHECK (current_round >= 1),
   voting_open   BOOLEAN NOT NULL DEFAULT FALSE,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  ended_at      TIMESTAMPTZ,
+  -- NULL until the mentor retires the session; set alongside status='completed'.
+  ended_at      TIMESTAMPTZ DEFAULT NULL,
   CONSTRAINT xy_sessions_status_allowed CHECK (status IN ('active', 'completed')),
   -- The two liveness flags are always read together, so they may never drift.
   CONSTRAINT xy_sessions_status_matches_is_active CHECK (
@@ -20,14 +21,21 @@ CREATE TABLE IF NOT EXISTS xy_sessions (
   )
 );
 
--- Upgrade path for databases created before `status` existed.
+-- Upgrade path for databases created before `status` / `ended_at` existed.
 ALTER TABLE xy_sessions
   ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
-  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ DEFAULT NULL;
 
 UPDATE xy_sessions
 SET status = CASE WHEN is_active THEN 'active' ELSE 'completed' END
 WHERE status IS DISTINCT FROM CASE WHEN is_active THEN 'active' ELSE 'completed' END;
+
+-- Retired rows imported before `ended_at` existed still need a close timestamp.
+UPDATE xy_sessions
+SET ended_at = COALESCE(ended_at, now())
+WHERE is_active = FALSE
+  AND ended_at IS NULL;
 
 DO $$
 BEGIN
