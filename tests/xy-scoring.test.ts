@@ -87,13 +87,13 @@ function makeIndividualVote(
 /** yCount → [expected Y points, expected X points] straight from the brief. */
 const EXPECTED_MATRIX: [number, number, number][] = [
   [8, 10, 0],
-  [7, -20, 10],
-  [6, -15, 5],
-  [5, -10, 0],
-  [4, -5, 0],
-  [3, -2, 0],
+  [7, -25, 15],
+  [6, -20, 10],
+  [5, -15, 5],
+  [4, -10, 0],
+  [3, -5, 0],
   [2, -2, 0],
-  [1, -2, 0],
+  [1, -50, 0],
   [0, 0, 0],
 ];
 
@@ -149,12 +149,20 @@ describe("scoreRound", () => {
     });
   });
 
-  it("punishes cooperators hardest against a lone defector", () => {
+  it("punishes cooperators hardest against a lone defector (7Y/1X → -25/+15)", () => {
     const votes: XYVote[] = ["Y", "Y", "Y", "Y", "Y", "Y", "Y", "X"];
     const score = scoreRound(votes);
     expect(score.yCount).toBe(7);
-    expect(pointsForVote("Y", score)).toBe(-20);
-    expect(pointsForVote("X", score)).toBe(10);
+    expect(pointsForVote("Y", score)).toBe(-25);
+    expect(pointsForVote("X", score)).toBe(15);
+  });
+
+  it("hits a lone cooperator hardest when seven defect (1Y/7X → -50/0)", () => {
+    const votes: XYVote[] = ["Y", "X", "X", "X", "X", "X", "X", "X"];
+    const score = scoreRound(votes);
+    expect(score.yCount).toBe(1);
+    expect(pointsForVote("Y", score)).toBe(-50);
+    expect(pointsForVote("X", score)).toBe(0);
   });
 
   it("awards nothing while fewer than 8 decisions are entered", () => {
@@ -180,10 +188,10 @@ describe("scoreRoundForTeams", () => {
     const { round, results } = scoreRoundForTeams(entries);
 
     expect(round.complete).toBe(true);
-    expect(results.filter((r) => r.vote === "Y").every((r) => r.points === -15)).toBe(
+    expect(results.filter((r) => r.vote === "Y").every((r) => r.points === -20)).toBe(
       true
     );
-    expect(results.filter((r) => r.vote === "X").every((r) => r.points === 5)).toBe(
+    expect(results.filter((r) => r.vote === "X").every((r) => r.points === 10)).toBe(
       true
     );
     expect(results).toHaveLength(8);
@@ -205,9 +213,9 @@ describe("computeStandings", () => {
 
   it("accumulates points and ranks by total then team number", () => {
     const teamVotes: XYTeamVote[] = [
-      // Round 1: 7Y / 1X — team 8 defects.
-      ...teams.slice(0, 7).map((t) => makeTeamVote(t.id, 1, "Y", -20)),
-      makeTeamVote("team-8", 1, "X", 10),
+      // Round 1: 7Y / 1X — team 8 defects (−25 / +15).
+      ...teams.slice(0, 7).map((t) => makeTeamVote(t.id, 1, "Y", -25)),
+      makeTeamVote("team-8", 1, "X", 15),
       // Round 2: everyone cooperates.
       ...teams.map((t) => makeTeamVote(t.id, 2, "Y", 10)),
     ];
@@ -215,9 +223,9 @@ describe("computeStandings", () => {
     const standings = computeStandings(teams, teamVotes);
 
     expect(standings[0]?.team.id).toBe("team-8");
-    expect(standings[0]?.totalPoints).toBe(20);
-    expect(standings[1]?.totalPoints).toBe(-10);
-    expect(standings.at(-1)?.totalPoints).toBe(-10);
+    expect(standings[0]?.totalPoints).toBe(25);
+    expect(standings[1]?.totalPoints).toBe(-15);
+    expect(standings.at(-1)?.totalPoints).toBe(-15);
     expect(standings[1]?.team.team_number).toBe(1);
     expect(standings[0]?.roundVotes[1]).toBe("X");
     expect(standings[0]?.roundPoints[2]).toBe(10);

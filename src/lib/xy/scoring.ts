@@ -22,17 +22,17 @@ export type XYPayoff = {
  * Win-Win payoff matrix keyed by how many of the 8 teams voted Y.
  *
  * 8Y → everyone cooperates and wins; a lone X defector profits most while
- * punishing the cooperators; once X spreads, nobody gains anything.
+ * punishing the cooperators; a lone remaining Y is hit hardest (−50).
  */
 export const XY_PAYOFF_MATRIX: Readonly<Record<number, XYPayoff>> = Object.freeze({
   8: { yPoints: 10, xPoints: 0 },
-  7: { yPoints: -20, xPoints: 10 },
-  6: { yPoints: -15, xPoints: 5 },
-  5: { yPoints: -10, xPoints: 0 },
-  4: { yPoints: -5, xPoints: 0 },
-  3: { yPoints: -2, xPoints: 0 },
+  7: { yPoints: -25, xPoints: 15 },
+  6: { yPoints: -20, xPoints: 10 },
+  5: { yPoints: -15, xPoints: 5 },
+  4: { yPoints: -10, xPoints: 0 },
+  3: { yPoints: -5, xPoints: 0 },
   2: { yPoints: -2, xPoints: 0 },
-  1: { yPoints: -2, xPoints: 0 },
+  1: { yPoints: -50, xPoints: 0 },
   0: { yPoints: 0, xPoints: 0 },
 });
 
@@ -43,13 +43,13 @@ export const XY_MATRIX_LEGEND: readonly {
   xPoints: number;
 }[] = [
   { label: "8Y / 0X", yPoints: 10, xPoints: 0 },
-  { label: "7Y / 1X", yPoints: -20, xPoints: 10 },
-  { label: "6Y / 2X", yPoints: -15, xPoints: 5 },
-  { label: "5Y / 3X", yPoints: -10, xPoints: 0 },
-  { label: "4Y / 4X", yPoints: -5, xPoints: 0 },
-  { label: "3Y / 5X", yPoints: -2, xPoints: 0 },
+  { label: "7Y / 1X", yPoints: -25, xPoints: 15 },
+  { label: "6Y / 2X", yPoints: -20, xPoints: 10 },
+  { label: "5Y / 3X", yPoints: -15, xPoints: 5 },
+  { label: "4Y / 4X", yPoints: -10, xPoints: 0 },
+  { label: "3Y / 5X", yPoints: -5, xPoints: 0 },
   { label: "2Y / 6X", yPoints: -2, xPoints: 0 },
-  { label: "1Y / 7X", yPoints: -2, xPoints: 0 },
+  { label: "1Y / 7X", yPoints: -50, xPoints: 0 },
   { label: "0Y / 8X", yPoints: 0, xPoints: 0 },
 ];
 

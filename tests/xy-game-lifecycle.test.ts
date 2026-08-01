@@ -344,8 +344,8 @@ describe("XY game full lifecycle", () => {
 
     const standings = computeStandings(store.teams, store.teamVotes);
     expect(standings[0]?.team.team_number).toBe(8);
-    expect(standings[0]?.totalPoints).toBe(10);
-    expect(standings.slice(1).every((s) => s.totalPoints === -20)).toBe(true);
+    expect(standings[0]?.totalPoints).toBe(15);
+    expect(standings.slice(1).every((s) => s.totalPoints === -25)).toBe(true);
   });
 
   it("phase 10 · round 2 runs to a full 8Y cooperation payout", () => {
@@ -362,8 +362,8 @@ describe("XY game full lifecycle", () => {
 
     const standings = computeStandings(store.teams, store.teamVotes);
     const team8 = standings.find((s) => s.team.team_number === 8);
-    expect(team8?.totalPoints).toBe(20);
-    expect(standings.find((s) => s.team.team_number === 1)?.totalPoints).toBe(-10);
+    expect(team8?.totalPoints).toBe(25);
+    expect(standings.find((s) => s.team.team_number === 1)?.totalPoints).toBe(-15);
     expect(
       computeSubmissionProgress(store.players, store.individualVotes, 2).submitted
     ).toBe(40);
@@ -379,10 +379,10 @@ describe("XY game full lifecycle", () => {
 
     const round1 = store.teamVotes.filter((v) => v.round_number === 1);
     expect(round1.filter((v) => v.vote === "X")).toHaveLength(2);
-    expect(round1.filter((v) => v.vote === "Y").every((v) => v.points === -15)).toBe(
+    expect(round1.filter((v) => v.vote === "Y").every((v) => v.points === -20)).toBe(
       true
     );
-    expect(round1.filter((v) => v.vote === "X").every((v) => v.points === 5)).toBe(
+    expect(round1.filter((v) => v.vote === "X").every((v) => v.points === 10)).toBe(
       true
     );
 
@@ -394,8 +394,8 @@ describe("XY game full lifecycle", () => {
     ).toBe(true);
 
     const standings = computeStandings(store.teams, store.teamVotes);
-    expect(standings[0]?.totalPoints).toBe(15);
-    expect(standings.at(-1)?.totalPoints).toBe(-5);
+    expect(standings[0]?.totalPoints).toBe(20);
+    expect(standings.at(-1)?.totalPoints).toBe(-10);
   });
 
   it("phase 12 · mentor can backfill and clear phone votes for a closed round", () => {
