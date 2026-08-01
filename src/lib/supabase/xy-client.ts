@@ -8,6 +8,7 @@ import {
   parseXySessionStatus,
   resolveXySessionLabel,
 } from "@/lib/xy/session-state";
+import { normalizeXyIndividualVoteRow } from "@/lib/xy/individual-votes";
 import { normalizeXyPlayerRow, resolveXyPlayerName } from "@/lib/xy/roster";
 import type {
   XYIndividualVote,
@@ -18,6 +19,8 @@ import type {
   XYTeamVote,
   XYVote,
 } from "@/types/xy";
+
+export { normalizeXyIndividualVoteRow } from "@/lib/xy/individual-votes";
 
 /** PostgREST code for "column does not exist" — a DB that predates a migration. */
 const UNDEFINED_COLUMN = "42703";
@@ -110,7 +113,7 @@ export const XY_TEAM_COLUMNS = "id, session_id, team_number, name, color, create
 
 /** Both name columns are read so either spelling can satisfy the UI. */
 export const XY_PLAYER_COLUMNS =
-  "id, session_id, player_uid, full_name, real_name, team_id, created_at";
+  "id, session_id, player_uid, full_name, real_name, team_id, team_number, created_at";
 
 /**
  * `player_id` is the FK to xy_players.id and is always read back explicitly.
@@ -183,28 +186,6 @@ function fetchXyPlayers(
     () => query("*"),
     normalizeXyPlayerRow
   );
-}
-
-/**
- * Fills in the mentor-edit audit fields a row may not carry. An absent or null
- * `edited_by_mentor` means the student cast the vote themselves, and `edited_at`
- * only ever holds a value on rows the mentor actually touched.
- */
-export function normalizeXyIndividualVoteRow(
-  row: Record<string, unknown>
-): XYIndividualVote {
-  const editedByMentor = row.edited_by_mentor === true;
-
-  return {
-    id: typeof row.id === "string" ? row.id : "",
-    session_id: typeof row.session_id === "string" ? row.session_id : "",
-    round_number: typeof row.round_number === "number" ? row.round_number : 0,
-    player_id: typeof row.player_id === "string" ? row.player_id : "",
-    vote: row.vote === "X" ? "X" : "Y",
-    edited_by_mentor: editedByMentor,
-    edited_at:
-      editedByMentor && typeof row.edited_at === "string" ? row.edited_at : null,
-  };
 }
 
 /** Vote read that tolerates a table without the mentor-edit audit columns. */

@@ -120,7 +120,10 @@ CREATE TABLE IF NOT EXISTS xy_players (
   player_uid TEXT NOT NULL,
   full_name  TEXT NOT NULL,
   real_name  TEXT,
-  team_id    UUID REFERENCES xy_teams (id) ON DELETE SET NULL,
+  -- team_id is the FK; team_number is a denormalized mirror so roster UIs and
+  -- offline tooling can read the assignment without joining xy_teams.
+  team_id    UUID REFERENCES xy_teams (id) ON DELETE CASCADE,
+  team_number INT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT uq_xy_players_session_uid UNIQUE (session_id, player_uid)
 );
@@ -129,7 +132,129 @@ CREATE TABLE IF NOT EXISTS xy_players (
 ALTER TABLE xy_players
   ADD COLUMN IF NOT EXISTS full_name TEXT,
   ADD COLUMN IF NOT EXISTS real_name TEXT,
+  ADD COLUMN IF NOT EXISTS team_id UUID,
+  ADD COLUMN IF NOT EXISTS team_number INT,
   ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+-- Prefer CASCADE over a legacy SET NULL so deleting a team removes its
+-- roster seats rather than leaving orphaned team_id pointers.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'xy_players_team_id_fkey'
+  ) THEN
+    ALTER TABLE xy_players DROP CONSTRAINT xy_players_team_id_fkey;
+  END IF;
+
+  ALTER TABLE xy_players
+    ADD CONSTRAINT xy_players_team_id_fkey
+    FOREIGN KEY (team_id) REFERENCES xy_teams (id) ON DELETE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END;
+$$;
+
+-- Backfill team_number from the assigned team when only the FK is present.
+UPDATE xy_players p
+SET team_number = t.team_number
+FROM xy_teams t
+WHERE p.team_id = t.id
+  AND (p.team_number IS DISTINCT FROM t.team_number);
+
+-- And the reverse: resolve team_id when only the number was written.
+UPDATE xy_players p
+SET team_id = t.id
+FROM xy_teams t
+WHERE p.team_id IS NULL
+  AND p.team_number IS NOT NULL
+  AND t.session_id = p.session_id
+  AND t.team_number = p.team_number;
+
+/**
+ * Keeps team_id and team_number in lockstep for every writer.
+ * On UPDATE the column that actually changed wins; on INSERT whichever
+ * column carries a value resolves the other.
+ */
+CREATE OR REPLACE FUNCTION xy_players_sync_team()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+DECLARE
+  v_team xy_teams%ROWTYPE;
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    IF NEW.team_id IS DISTINCT FROM OLD.team_id THEN
+      IF NEW.team_id IS NULL THEN
+        NEW.team_number := NULL;
+        RETURN NEW;
+      END IF;
+      SELECT * INTO v_team FROM xy_teams WHERE id = NEW.team_id;
+      IF v_team.id IS NOT NULL THEN
+        NEW.team_number := v_team.team_number;
+      END IF;
+      RETURN NEW;
+    ELSIF NEW.team_number IS DISTINCT FROM OLD.team_number THEN
+      IF NEW.team_number IS NULL THEN
+        NEW.team_id := NULL;
+        RETURN NEW;
+      END IF;
+      SELECT * INTO v_team
+      FROM xy_teams
+      WHERE session_id = NEW.session_id
+        AND team_number = NEW.team_number;
+      NEW.team_id := v_team.id;
+      IF v_team.id IS NOT NULL THEN
+        NEW.team_number := v_team.team_number;
+      END IF;
+      RETURN NEW;
+    END IF;
+  END IF;
+
+  IF NEW.team_id IS NOT NULL THEN
+    SELECT * INTO v_team FROM xy_teams WHERE id = NEW.team_id;
+    IF v_team.id IS NOT NULL THEN
+      NEW.team_number := v_team.team_number;
+    END IF;
+  ELSIF NEW.team_number IS NOT NULL THEN
+    SELECT * INTO v_team
+    FROM xy_teams
+    WHERE session_id = NEW.session_id
+      AND team_number = NEW.team_number;
+    NEW.team_id := v_team.id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_xy_players_sync_team ON xy_players;
+CREATE TRIGGER trg_xy_players_sync_team
+  BEFORE INSERT OR UPDATE OF team_id, team_number ON xy_players
+  FOR EACH ROW
+  EXECUTE FUNCTION xy_players_sync_team();
+
+-- Renaming / renumbering a team refreshes roster snapshots too.
+CREATE OR REPLACE FUNCTION xy_teams_propagate_player_identity()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  UPDATE xy_players
+  SET team_number = NEW.team_number
+  WHERE team_id = NEW.id
+    AND team_number IS DISTINCT FROM NEW.team_number;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_xy_teams_propagate_player_identity ON xy_teams;
+CREATE TRIGGER trg_xy_teams_propagate_player_identity
+  AFTER UPDATE OF team_number ON xy_teams
+  FOR EACH ROW
+  EXECUTE FUNCTION xy_teams_propagate_player_identity();
 
 UPDATE xy_players
 SET full_name = real_name

@@ -524,6 +524,23 @@ describe("xy_players name columns", () => {
 
     expect(createBlock).toMatch(/full_name\s+TEXT NOT NULL/);
     expect(createBlock).toMatch(/real_name\s+TEXT/);
+    expect(createBlock).toMatch(
+      /team_id\s+UUID REFERENCES xy_teams \(id\) ON DELETE CASCADE/
+    );
+    expect(createBlock).toMatch(/team_number INT/);
+  });
+
+  it("upgrades team_id to CASCADE and keeps team_number in sync", () => {
+    expect(migration).toContain("ADD COLUMN IF NOT EXISTS team_id UUID");
+    expect(migration).toContain("ADD COLUMN IF NOT EXISTS team_number INT");
+    expect(migration).toContain("DROP CONSTRAINT xy_players_team_id_fkey");
+    expect(migration).toContain(
+      "FOREIGN KEY (team_id) REFERENCES xy_teams (id) ON DELETE CASCADE"
+    );
+    expect(migration).toContain("CREATE OR REPLACE FUNCTION xy_players_sync_team()");
+    expect(migration).toMatch(
+      /CREATE TRIGGER trg_xy_players_sync_team\s*\n\s*BEFORE INSERT OR UPDATE OF team_id, team_number ON xy_players/
+    );
   });
 
   it("adds either missing column and backfills it from the other", () => {
@@ -555,7 +572,7 @@ describe("xy_players name columns", () => {
 
   it("selects both columns and tolerates a table missing one of them", () => {
     expect(client).toContain(
-      'XY_PLAYER_COLUMNS =\n  "id, session_id, player_uid, full_name, real_name, team_id, created_at"'
+      'XY_PLAYER_COLUMNS =\n  "id, session_id, player_uid, full_name, real_name, team_id, team_number, created_at"'
     );
     expect(client).toContain("() => query(XY_PLAYER_COLUMNS)");
     expect(client).toContain("primary.error?.code === UNDEFINED_COLUMN");
@@ -839,6 +856,23 @@ describe("fetchXySnapshot degradation", () => {
 
     expect(snapshot.warnings).toEqual([]);
     expect(snapshot.teamVotes[0]).toMatchObject({ points: 10, points_awarded: 10 });
+  });
+});
+
+describe("team_id / team_number action writers", () => {
+  const actions = readSource("src/lib/actions/xy-actions.ts");
+  const hook = readSource("src/hooks/useXyLiveSession.ts");
+
+  it("writes team_id and team_number together on assign and paper-vote save", () => {
+    expect(actions).toContain("update({ team_id: teamId, team_number: teamNumber })");
+    expect(actions).toContain("team_number: team?.team_number ?? null");
+    expect(actions).toContain("team_name: team?.team_name ?? null");
+  });
+
+  it("merges xy_individual_votes realtime into local state for the live session", () => {
+    expect(hook).toContain('table: "xy_individual_votes"');
+    expect(hook).toContain("applyXyIndividualVoteEvent");
+    expect(hook).toContain("filter: `session_id=eq.${sessionId}`");
   });
 });
 

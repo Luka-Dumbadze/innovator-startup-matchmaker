@@ -162,9 +162,29 @@ export async function assignXyPlayerTeamAction(
     }
 
     const supabase = getSupabaseServerAdminClient();
+
+    let teamNumber: number | null = null;
+    if (teamId) {
+      const { data: team, error: teamError } = await supabase
+        .from("xy_teams")
+        .select("id, team_number")
+        .eq("id", teamId)
+        .maybeSingle();
+
+      if (teamError) {
+        return { success: false, error: teamError.message };
+      }
+      if (!team) {
+        return { success: false, error: "გუნდი ვერ მოიძებნა" };
+      }
+      teamNumber = team.team_number;
+    }
+
+    // Write both sides of the pair; the sync trigger keeps them equal even if
+    // only one lands, but spelling both avoids a round-trip on half-migrated DBs.
     const { error } = await supabase
       .from("xy_players")
-      .update({ team_id: teamId })
+      .update({ team_id: teamId, team_number: teamNumber })
       .eq("id", playerId);
 
     if (error) {
@@ -278,18 +298,41 @@ export async function saveXyTeamRoundVotesAction(input: {
     const { round, results } = scoreRoundForTeams(entries);
 
     if (results.length > 0) {
-      // team_number / team_name / points_awarded are filled in by the table's
-      // sync trigger, which also resolves rows written by team number.
+      const teamIds = results.map((r) => r.teamId);
+      const { data: teamRows, error: teamsLookupError } = await supabase
+        .from("xy_teams")
+        .select("id, team_number, name")
+        .eq("session_id", input.sessionId)
+        .in("id", teamIds);
+
+      if (teamsLookupError) {
+        return { success: false, error: teamsLookupError.message };
+      }
+
+      const teamById = new Map(
+        (teamRows ?? []).map((t) => [
+          t.id,
+          { team_number: t.team_number, team_name: t.name },
+        ])
+      );
+
+      // Write team_id + team_number together so a DB without the sync trigger
+      // still stores a complete paper-vote row.
       const { error: upsertError } = await supabase.from("xy_team_votes").upsert(
-        results.map((r) => ({
-          session_id: input.sessionId,
-          round_number: input.round,
-          team_id: r.teamId,
-          vote: r.vote,
-          points: r.points,
-          points_awarded: r.points,
-          updated_at: new Date().toISOString(),
-        })),
+        results.map((r) => {
+          const team = teamById.get(r.teamId);
+          return {
+            session_id: input.sessionId,
+            round_number: input.round,
+            team_id: r.teamId,
+            team_number: team?.team_number ?? null,
+            team_name: team?.team_name ?? null,
+            vote: r.vote,
+            points: r.points,
+            points_awarded: r.points,
+            updated_at: new Date().toISOString(),
+          };
+        }),
         { onConflict: "session_id,round_number,team_id" }
       );
 

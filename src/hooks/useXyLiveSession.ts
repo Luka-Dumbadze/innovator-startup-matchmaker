@@ -4,6 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { EMPTY_XY_SNAPSHOT, XY_TABLES, fetchXySnapshot } from "@/lib/supabase/xy-client";
+import {
+  applyXyIndividualVoteEvent,
+  type XyIndividualVoteChange,
+} from "@/lib/xy/individual-votes";
 import { applyXyPlayerEvent, type XyPlayerChange } from "@/lib/xy/roster";
 import type { XYSnapshot } from "@/types/xy";
 
@@ -16,6 +20,8 @@ export type XyLiveState = XYSnapshot & {
   refresh: () => Promise<void>;
 };
 
+const MERGED_TABLES = new Set(["xy_players", "xy_individual_votes"]);
+
 /**
  * Keeps an XY screen in sync with the active session.
  *
@@ -27,10 +33,11 @@ export function useXyLiveSession(initial?: XYSnapshot): XyLiveState {
   const [loading, setLoading] = useState(!initial);
   const [error, setError] = useState<string | null>(null);
   const inFlightRef = useRef(false);
-  // Player ids the roster channel injected while a snapshot fetch was in
+  // Rows the session-scoped channels injected while a snapshot fetch was in
   // flight — kept across the next setSnapshot so a stale response cannot
-  // flash a just-joined student back out of the mentor panel.
+  // flash a just-joined student or a just-cast vote back out of the panel.
   const pendingPlayerIdsRef = useRef(new Set<string>());
+  const pendingVoteIdsRef = useRef(new Set<string>());
 
   const refresh = useCallback(async () => {
     if (inFlightRef.current) return;
@@ -41,25 +48,51 @@ export function useXyLiveSession(initial?: XYSnapshot): XyLiveState {
       setSnapshot((prev) => {
         if (!next.session || prev.session?.id !== next.session.id) {
           pendingPlayerIdsRef.current.clear();
+          pendingVoteIdsRef.current.clear();
           return next;
         }
 
-        const serverIds = new Set(next.players.map((p) => p.id));
+        const serverPlayerIds = new Set(next.players.map((p) => p.id));
         for (const id of [...pendingPlayerIdsRef.current]) {
-          if (serverIds.has(id)) pendingPlayerIdsRef.current.delete(id);
+          if (serverPlayerIds.has(id)) pendingPlayerIdsRef.current.delete(id);
         }
 
-        const pending = prev.players.filter(
+        const pendingPlayers = prev.players.filter(
           (p) =>
-            pendingPlayerIdsRef.current.has(p.id) && !serverIds.has(p.id)
+            pendingPlayerIdsRef.current.has(p.id) && !serverPlayerIds.has(p.id)
         );
 
-        if (pending.length === 0) return next;
+        const serverVoteIds = new Set(next.individualVotes.map((v) => v.id));
+        for (const id of [...pendingVoteIdsRef.current]) {
+          if (serverVoteIds.has(id)) pendingVoteIdsRef.current.delete(id);
+        }
 
-        const players = [...next.players, ...pending].sort((a, b) =>
-          a.created_at.localeCompare(b.created_at)
+        const pendingVotes = prev.individualVotes.filter(
+          (v) =>
+            pendingVoteIdsRef.current.has(v.id) && !serverVoteIds.has(v.id)
         );
-        return { ...next, players };
+
+        if (pendingPlayers.length === 0 && pendingVotes.length === 0) {
+          return next;
+        }
+
+        const players =
+          pendingPlayers.length === 0
+            ? next.players
+            : [...next.players, ...pendingPlayers].sort((a, b) =>
+                a.created_at.localeCompare(b.created_at)
+              );
+
+        const individualVotes =
+          pendingVotes.length === 0
+            ? next.individualVotes
+            : [...next.individualVotes, ...pendingVotes].sort(
+                (a, b) =>
+                  a.player_id.localeCompare(b.player_id) ||
+                  a.round_number - b.round_number
+              );
+
+        return { ...next, players, individualVotes };
       });
       setError(null);
     } catch (err) {
@@ -87,9 +120,9 @@ export function useXyLiveSession(initial?: XYSnapshot): XyLiveState {
     const supabase = createBrowserSupabaseClient();
     let channel = supabase.channel("xy-live");
 
-    // xy_players has its own session-scoped channel below, which merges the
+    // Roster + phone votes have session-scoped channels below that merge the
     // row locally instead of only asking for a refetch.
-    for (const table of XY_TABLES.filter((t) => t !== "xy_players")) {
+    for (const table of XY_TABLES.filter((t) => !MERGED_TABLES.has(t))) {
       channel = channel.on(
         "postgres_changes",
         { event: "*", schema: "public", table },
@@ -124,10 +157,34 @@ export function useXyLiveSession(initial?: XYSnapshot): XyLiveState {
     });
   }, []);
 
+  const applyVoteChange = useCallback((change: XyIndividualVoteChange) => {
+    if (change.eventType === "DELETE") {
+      const removedId =
+        typeof change.old?.id === "string" ? change.old.id : null;
+      if (removedId) pendingVoteIdsRef.current.delete(removedId);
+    } else if (typeof change.new?.id === "string") {
+      pendingVoteIdsRef.current.add(change.new.id);
+    }
+
+    setSnapshot((prev) => {
+      const sessionId = prev.session?.id;
+      if (!sessionId) return prev;
+
+      const individualVotes = applyXyIndividualVoteEvent(
+        prev.individualVotes,
+        change,
+        sessionId
+      );
+      return individualVotes === prev.individualVotes
+        ? prev
+        : { ...prev, individualVotes };
+    });
+  }, []);
+
   /**
-   * Roster events are merged into state the moment they arrive, so a student
-   * joining on their phone shows up on the mentor's panel instantly rather than
-   * on the next poll. The refetch that follows reconciles everything else.
+   * Roster + submission events are merged into state the moment they arrive,
+   * so a student joining or voting on their phone shows up on the mentor panel
+   * instantly rather than on the next poll.
    */
   const sessionId = snapshot.session?.id ?? null;
 
@@ -136,7 +193,7 @@ export function useXyLiveSession(initial?: XYSnapshot): XyLiveState {
 
     const supabase = createBrowserSupabaseClient();
     const channel = supabase
-      .channel(`xy-roster-${sessionId}`)
+      .channel(`xy-live-session-${sessionId}`)
       .on(
         "postgres_changes",
         {
@@ -146,9 +203,23 @@ export function useXyLiveSession(initial?: XYSnapshot): XyLiveState {
           filter: `session_id=eq.${sessionId}`,
         },
         (payload) => {
-          // Merge first so the roster paints before the next 1.5s poll lands.
-          // A refetch here would race the merge and can briefly erase the new row.
           applyPlayerChange({
+            eventType: payload.eventType,
+            new: payload.new as Record<string, unknown> | null,
+            old: payload.old as Record<string, unknown> | null,
+          });
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "xy_individual_votes",
+          filter: `session_id=eq.${sessionId}`,
+        },
+        (payload) => {
+          applyVoteChange({
             eventType: payload.eventType,
             new: payload.new as Record<string, unknown> | null,
             old: payload.old as Record<string, unknown> | null,
@@ -160,7 +231,7 @@ export function useXyLiveSession(initial?: XYSnapshot): XyLiveState {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [applyPlayerChange, sessionId]);
+  }, [applyPlayerChange, applyVoteChange, sessionId]);
 
   return { ...snapshot, loading, error, refresh };
 }

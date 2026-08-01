@@ -50,6 +50,7 @@ export function normalizeXyPlayerRow(
     full_name: name,
     real_name: name,
     team_id: typeof row.team_id === "string" ? row.team_id : null,
+    team_number: typeof row.team_number === "number" ? row.team_number : null,
     created_at: typeof row.created_at === "string" ? row.created_at : "",
   };
 }
@@ -90,6 +91,7 @@ export function applyXyPlayerEvent(
     if (
       existing.full_name === merged.full_name &&
       existing.team_id === merged.team_id &&
+      (existing.team_number ?? null) === (merged.team_number ?? null) &&
       existing.id === merged.id
     ) {
       return players as XYPlayer[];

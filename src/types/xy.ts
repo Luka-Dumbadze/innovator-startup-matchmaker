@@ -44,6 +44,8 @@ export interface XYPlayer {
    */
   real_name?: string | null;
   team_id: string | null;
+  /** Denormalized mirror of the assigned team's number; null when unassigned. */
+  team_number?: number | null;
   created_at: string;
 }
 

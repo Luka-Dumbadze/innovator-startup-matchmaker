@@ -324,6 +324,7 @@ export type Database = {
           full_name: string;
           real_name: string | null;
           team_id: string | null;
+          team_number: number | null;
           created_at: string;
         };
         Insert: {
@@ -333,6 +334,7 @@ export type Database = {
           full_name: string;
           real_name?: string | null;
           team_id?: string | null;
+          team_number?: number | null;
           created_at?: string;
         };
         Update: {
@@ -342,6 +344,7 @@ export type Database = {
           full_name?: string;
           real_name?: string | null;
           team_id?: string | null;
+          team_number?: number | null;
           created_at?: string;
         };
         Relationships: [
@@ -532,6 +535,7 @@ export type Database = {
           full_name: string;
           real_name: string | null;
           team_id: string | null;
+          team_number: number | null;
           created_at: string;
         };
       };
