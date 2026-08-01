@@ -1,5 +1,5 @@
 /**
- * Standalone XY-Game (Win-Win Simulation) domain types.
+ * Standalone XY-Game domain types.
  *
  * Two parallel decision channels per round:
  * - Team paper vote (mentor entered) → drives team scores.

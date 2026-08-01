@@ -3,11 +3,12 @@ import type { Metadata } from "next";
 import { XyMentorPanel } from "@/components/xy/XyMentorPanel";
 import { getXySnapshot } from "@/lib/actions/xy-actions";
 import { EMPTY_XY_SNAPSHOT } from "@/lib/supabase/xy-client";
+import { XY_UI_SUBTITLE, XY_UI_TITLE } from "@/lib/xy/session-state";
 import type { XYSnapshot } from "@/types/xy";
 
 export const metadata: Metadata = {
-  title: "XY Mentor Panel · Win-Win Simulation",
-  description: "Open rounds, enter team paper votes, and track submissions live",
+  title: `${XY_UI_TITLE} · Mentor`,
+  description: XY_UI_SUBTITLE,
 };
 
 export const dynamic = "force-dynamic";

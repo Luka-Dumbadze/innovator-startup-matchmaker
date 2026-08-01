@@ -1,10 +1,11 @@
 import type { Metadata, Viewport } from "next";
 
 import { XyStudentContainer } from "@/components/xy/XyStudentContainer";
+import { XY_UI_SUBTITLE, XY_UI_TITLE } from "@/lib/xy/session-state";
 
 export const metadata: Metadata = {
-  title: "XY Game · Win-Win Simulation",
-  description: "Tap X or Y when your mentor opens the round",
+  title: XY_UI_TITLE,
+  description: XY_UI_SUBTITLE,
 };
 
 export const viewport: Viewport = {

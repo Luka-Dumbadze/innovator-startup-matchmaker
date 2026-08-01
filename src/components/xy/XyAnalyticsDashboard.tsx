@@ -118,11 +118,14 @@ export function XyAnalyticsDashboard() {
       <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs font-bold tracking-[0.16em] text-teal-400 uppercase">
-            XY Analytics · Individual vs Team
+            XY თამაში
           </p>
           <h1 className="font-[family-name:var(--font-noto-georgian)] text-2xl font-black text-white">
             {resolveXySessionLabel(live.session.label)}
           </h1>
+          <p className="mt-1 font-[family-name:var(--font-noto-georgian)] text-sm text-slate-400">
+            ინდივიდუალური და გუნდური არჩევანის თამაში
+          </p>
           <p className="mt-1 font-[family-name:var(--font-noto-georgian)] text-sm text-slate-400">
             🚨 Stealth Defectors: {totals.stealth} · 💚 Secret Altruists:{" "}
             {totals.altruist}

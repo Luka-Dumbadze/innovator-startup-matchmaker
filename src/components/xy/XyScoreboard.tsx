@@ -48,11 +48,14 @@ export function XyScoreboard() {
       <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-sm font-bold tracking-[0.2em] text-teal-400 uppercase">
-            Win-Win Simulation
+            XY თამაში
           </p>
           <h1 className="font-[family-name:var(--font-noto-georgian)] text-4xl font-black text-white xl:text-5xl">
             {board.sessionTitle}
           </h1>
+          <p className="mt-2 font-[family-name:var(--font-noto-georgian)] text-base text-slate-400">
+            ინდივიდუალური და გუნდური არჩევანის თამაში
+          </p>
         </div>
         <div
           className={`rounded-2xl px-5 py-3 font-[family-name:var(--font-noto-georgian)] text-2xl font-black ${

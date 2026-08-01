@@ -249,10 +249,11 @@ function XyMentorPanelInner({ initial, loadError = null }: XyMentorPanelProps) {
     return (
       <main className="mx-auto w-full max-w-2xl px-4 py-10">
         <h1 className="mb-2 font-[family-name:var(--font-noto-georgian)] text-2xl font-black text-white">
-          XY თამაში (Win-Win სიმულაცია)
+          XY თამაში
         </h1>
         <p className="mb-6 font-[family-name:var(--font-noto-georgian)] text-sm text-slate-400">
-          აქტიური სესია არ არის. შექმენით ახალი — ავტომატურად დაემატება 8 გუნდი.
+          ინდივიდუალური და გუნდური არჩევანის თამაში. აქტიური სესია არ არის —
+          შექმენით ახალი და ავტომატურად დაემატება 8 გუნდი.
         </p>
 
         <XyErrorBanner
@@ -301,11 +302,14 @@ function XyMentorPanelInner({ initial, loadError = null }: XyMentorPanelProps) {
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-xs font-bold tracking-[0.16em] text-teal-400 uppercase">
-            XY · Win-Win Simulation
+            XY თამაში
           </p>
           <h1 className="font-[family-name:var(--font-noto-georgian)] text-2xl font-black text-white">
             {resolveXySessionLabel(session.label)}
           </h1>
+          <p className="mt-1 font-[family-name:var(--font-noto-georgian)] text-sm text-slate-400">
+            ინდივიდუალური და გუნდური არჩევანის თამაში
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Link

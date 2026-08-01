@@ -19,7 +19,7 @@ export type XYPayoff = {
 };
 
 /**
- * Win-Win payoff matrix keyed by how many of the 8 teams voted Y.
+ * 8-team payoff matrix keyed by how many of the 8 teams voted Y.
  *
  * 8Y → everyone cooperates and wins; a lone X defector profits most while
  * punishing the cooperators; a lone remaining Y is hit hardest (−50).

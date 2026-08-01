@@ -1,5 +1,14 @@
+import type { Metadata } from "next";
 import Link from "next/link";
-import { Monitor, Smartphone, Wrench, ArrowUpRight } from "lucide-react";
+import { Monitor, Smartphone, Swords, Wrench, ArrowUpRight } from "lucide-react";
+
+import { XY_UI_SUBTITLE, XY_UI_TITLE } from "@/lib/xy/session-state";
+
+export const metadata: Metadata = {
+  title: "Startup Matchmaker",
+  description:
+    "Atomic team assignment, live big-screen sync, mentor tooling, and XY თამაში.",
+};
 
 const FEATURES = [
   {
@@ -29,6 +38,15 @@ const FEATURES = [
     accent: "from-amber-500/20 to-transparent",
     ring: "hover:ring-amber-400/50",
   },
+  {
+    href: "/xy",
+    emoji: "⚔️",
+    title: XY_UI_TITLE,
+    description: XY_UI_SUBTITLE,
+    icon: Swords,
+    accent: "from-emerald-500/20 to-transparent",
+    ring: "hover:ring-emerald-400/50",
+  },
 ] as const;
 
 export default function HomePage() {
@@ -57,7 +75,7 @@ export default function HomePage() {
           </p>
         </div>
 
-        <div className="mt-12 grid gap-4 sm:grid-cols-3">
+        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {FEATURES.map(({ href, emoji, title, description, icon: Icon, accent, ring }) => (
             <Link
               key={href}

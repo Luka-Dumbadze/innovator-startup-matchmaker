@@ -7,6 +7,13 @@ export const XY_STATUS_COMPLETED: XYSessionStatus = "completed";
 /** Mirrors the `xy_sessions.label` column default. */
 export const XY_DEFAULT_SESSION_LABEL = "XY თამაში";
 
+/** Neutral user-facing product name — never reveals the game theory framing. */
+export const XY_UI_TITLE = "XY თამაში";
+
+/** Neutral subtitle for metadata, landing cards, and panel eyebrows. */
+export const XY_UI_SUBTITLE =
+  "ინდივიდუალური და გუნდური არჩევანის თამაში";
+
 export const XY_SESSION_LABEL_MAX = 80;
 
 /** Never persist a blank label — every XY screen renders it as a heading. */

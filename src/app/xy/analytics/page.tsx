@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 
 import { XyAnalyticsDashboard } from "@/components/xy/XyAnalyticsDashboard";
+import { XY_UI_SUBTITLE, XY_UI_TITLE } from "@/lib/xy/session-state";
 
 export const metadata: Metadata = {
-  title: "XY Analytics · Win-Win Simulation",
-  description: "Round-by-round individual phone votes vs team paper decisions",
+  title: `${XY_UI_TITLE} · Analytics`,
+  description: XY_UI_SUBTITLE,
 };
 
 export default function XyAnalyticsPage() {

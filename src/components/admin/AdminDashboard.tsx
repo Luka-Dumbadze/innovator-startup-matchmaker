@@ -74,7 +74,7 @@ export function AdminDashboard({
                 className="inline-flex items-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-800 transition hover:bg-teal-100"
               >
                 <Swords className="size-4" />
-                XY Game
+                XY თამაში
               </Link>
             </div>
           </div>
