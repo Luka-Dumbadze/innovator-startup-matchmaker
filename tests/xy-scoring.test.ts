@@ -65,6 +65,7 @@ function makeTeamVote(
     team_id: teamId,
     vote,
     points,
+    points_awarded: points,
   };
 }
 

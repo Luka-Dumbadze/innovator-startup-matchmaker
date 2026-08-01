@@ -177,6 +177,7 @@ class XyGameStore {
       if (existing) {
         existing.vote = result.vote;
         existing.points = result.points;
+        existing.points_awarded = result.points;
       } else {
         this.teamVotes.push({
           id: this.nextId("team-vote"),
@@ -185,6 +186,7 @@ class XyGameStore {
           team_id: result.teamId,
           vote: result.vote,
           points: result.points,
+          points_awarded: result.points,
         });
       }
     }

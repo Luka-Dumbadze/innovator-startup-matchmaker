@@ -425,7 +425,7 @@ export type Database = {
           team_name: string | null;
           vote: "X" | "Y";
           points: number;
-          points_awarded: number | null;
+          points_awarded: number;
           created_at: string;
           updated_at: string;
         };
@@ -438,7 +438,7 @@ export type Database = {
           team_name?: string | null;
           vote: "X" | "Y";
           points?: number;
-          points_awarded?: number | null;
+          points_awarded?: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -451,7 +451,7 @@ export type Database = {
           team_name?: string | null;
           vote?: "X" | "Y";
           points?: number;
-          points_awarded?: number | null;
+          points_awarded?: number;
           created_at?: string;
           updated_at?: string;
         };

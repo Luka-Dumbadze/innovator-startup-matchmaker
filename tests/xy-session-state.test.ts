@@ -696,7 +696,7 @@ describe("xy_team_votes schema and reads", () => {
       /team_name\s+TEXT/,
       /vote\s+TEXT NOT NULL CHECK/,
       /points\s+INT NOT NULL DEFAULT 0/,
-      /points_awarded INT DEFAULT NULL/,
+      /points_awarded INT NOT NULL DEFAULT 0/,
       /created_at\s+TIMESTAMPTZ NOT NULL DEFAULT now\(\)/,
       /updated_at\s+TIMESTAMPTZ NOT NULL DEFAULT now\(\)/,
     ]) {
@@ -711,7 +711,11 @@ describe("xy_team_votes schema and reads", () => {
   it("re-runs safely and resolves either write shape", () => {
     expect(migration).toContain("ADD COLUMN IF NOT EXISTS team_number INT");
     expect(migration).toContain("ADD COLUMN IF NOT EXISTS team_name TEXT");
-    expect(migration).toContain("ADD COLUMN IF NOT EXISTS points_awarded INT DEFAULT NULL");
+    expect(migration).toContain("ADD COLUMN IF NOT EXISTS points INT DEFAULT 0");
+    expect(migration).toContain(
+      "ADD COLUMN IF NOT EXISTS points_awarded INT DEFAULT 0"
+    );
+    expect(migration).toMatch(/ALTER COLUMN points_awarded SET NOT NULL/);
 
     // A row written by team number gets its FK filled in, and vice versa.
     expect(migration).toMatch(/SET team_id = t\.id[\s\S]*?WHERE v\.team_id IS NULL/);
@@ -867,6 +871,11 @@ describe("team_id / team_number action writers", () => {
     expect(actions).toContain("update({ team_id: teamId, team_number: teamNumber })");
     expect(actions).toContain("team_number: team?.team_number ?? null");
     expect(actions).toContain("team_name: team?.team_name ?? null");
+  });
+
+  it("inserts both points and points_awarded on paper-vote save", () => {
+    expect(actions).toContain("points: r.points");
+    expect(actions).toContain("points_awarded: r.points");
   });
 
   it("merges xy_individual_votes realtime into local state for the live session", () => {

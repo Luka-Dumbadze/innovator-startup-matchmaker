@@ -401,8 +401,9 @@ CREATE TABLE IF NOT EXISTS xy_team_votes (
   team_number    INT,
   team_name      TEXT,
   vote           TEXT NOT NULL CHECK (vote IN ('X', 'Y')),
+  -- Both spellings of the score; the sync trigger keeps them equal.
   points         INT NOT NULL DEFAULT 0,
-  points_awarded INT DEFAULT NULL,
+  points_awarded INT NOT NULL DEFAULT 0,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT uq_xy_team_votes UNIQUE (session_id, round_number, team_id)
@@ -413,8 +414,8 @@ ALTER TABLE xy_team_votes
   ADD COLUMN IF NOT EXISTS team_id UUID,
   ADD COLUMN IF NOT EXISTS team_number INT,
   ADD COLUMN IF NOT EXISTS team_name TEXT,
-  ADD COLUMN IF NOT EXISTS points INT NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS points_awarded INT DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS points INT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS points_awarded INT DEFAULT 0,
   ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
@@ -434,15 +435,28 @@ FROM xy_teams t
 WHERE v.team_id = t.id
   AND (v.team_number IS DISTINCT FROM t.team_number OR v.team_name IS DISTINCT FROM t.name);
 
+-- Prefer the non-zero side when only one spelling was populated, then force
+-- both columns to a concrete integer so DEFAULT 0 / NOT NULL can stick.
 UPDATE xy_team_votes
 SET points = points_awarded
 WHERE points_awarded IS NOT NULL
-  AND points = 0
+  AND COALESCE(points, 0) = 0
   AND points_awarded <> 0;
 
 UPDATE xy_team_votes
+SET points = 0
+WHERE points IS NULL;
+
+UPDATE xy_team_votes
 SET points_awarded = points
-WHERE points_awarded IS NULL;
+WHERE points_awarded IS NULL
+   OR points_awarded IS DISTINCT FROM points;
+
+ALTER TABLE xy_team_votes
+  ALTER COLUMN points SET DEFAULT 0,
+  ALTER COLUMN points SET NOT NULL,
+  ALTER COLUMN points_awarded SET DEFAULT 0,
+  ALTER COLUMN points_awarded SET NOT NULL;
 
 -- Mentor-entered scores are never deleted to satisfy a constraint: the FK is
 -- only tightened once every row actually resolves to a team.
@@ -496,14 +510,17 @@ BEGIN
     NEW.team_name := v_team.name;
   END IF;
 
+  -- Keep points and points_awarded equal: the column that actually changed
+  -- wins on UPDATE; on INSERT either spelling fills the other, defaulting to 0.
   IF TG_OP = 'UPDATE' AND NEW.points IS DISTINCT FROM OLD.points THEN
-    NEW.points_awarded := NEW.points;
-  ELSIF TG_OP = 'UPDATE' AND NEW.points_awarded IS DISTINCT FROM OLD.points_awarded THEN
-    NEW.points := NEW.points_awarded;
-  ELSIF NEW.points_awarded IS NOT NULL AND COALESCE(NEW.points, 0) = 0 THEN
-    NEW.points := NEW.points_awarded;
-  ELSE
     NEW.points_awarded := COALESCE(NEW.points, 0);
+    NEW.points := COALESCE(NEW.points, 0);
+  ELSIF TG_OP = 'UPDATE' AND NEW.points_awarded IS DISTINCT FROM OLD.points_awarded THEN
+    NEW.points := COALESCE(NEW.points_awarded, 0);
+    NEW.points_awarded := COALESCE(NEW.points_awarded, 0);
+  ELSE
+    NEW.points := COALESCE(NEW.points, NEW.points_awarded, 0);
+    NEW.points_awarded := NEW.points;
   END IF;
 
   RETURN NEW;

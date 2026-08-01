@@ -71,8 +71,8 @@ export interface XYTeamVote {
   team_name?: string | null;
   vote: XYVote;
   points: number;
-  /** Mirror of `points` for readers that use the longer column name. */
-  points_awarded?: number | null;
+  /** Mirror of `points` — always written and selected alongside it. */
+  points_awarded: number;
 }
 
 /** Everything the XY screens need in one read. */
