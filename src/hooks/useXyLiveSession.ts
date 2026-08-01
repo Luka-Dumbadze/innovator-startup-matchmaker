@@ -3,16 +3,26 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
-import { EMPTY_XY_SNAPSHOT, XY_TABLES, fetchXySnapshot } from "@/lib/supabase/xy-client";
+import {
+  EMPTY_XY_SNAPSHOT,
+  XY_TABLES,
+  applyXySessionStatusPoll,
+  fetchXySessionStatusPoll,
+  fetchXySnapshot,
+} from "@/lib/supabase/xy-client";
 import {
   applyXyIndividualVoteEvent,
   type XyIndividualVoteChange,
 } from "@/lib/xy/individual-votes";
 import { applyXyPlayerEvent, type XyPlayerChange } from "@/lib/xy/roster";
-import type { XYSnapshot } from "@/types/xy";
+import type { XYSession, XYSnapshot } from "@/types/xy";
 
-/** Polling cadence — the safety net when a Realtime event is missed. */
-export const XY_POLL_INTERVAL_MS = 1500;
+/**
+ * 1s fallback when Realtime drops a message. Polls ONLY lightweight session
+ * status columns — never the roster / vote joins — so a 1-hour session stays
+ * cheap on the wire.
+ */
+export const XY_POLL_INTERVAL_MS = 1000;
 
 export type XyLiveState = XYSnapshot & {
   loading: boolean;
@@ -25,14 +35,15 @@ const MERGED_TABLES = new Set(["xy_players", "xy_individual_votes"]);
 /**
  * Keeps an XY screen in sync with the active session.
  *
- * Realtime gives instant updates; a 1.5s poll guarantees phones still flip to
- * the voting view even when the websocket drops a message.
+ * Realtime gives instant updates; a 1s lightweight status poll guarantees
+ * phones still flip to the voting view even when the websocket drops a message.
  */
 export function useXyLiveSession(initial?: XYSnapshot): XyLiveState {
   const [snapshot, setSnapshot] = useState<XYSnapshot>(initial ?? EMPTY_XY_SNAPSHOT);
   const [loading, setLoading] = useState(!initial);
   const [error, setError] = useState<string | null>(null);
   const inFlightRef = useRef(false);
+  const sessionRef = useRef<XYSession | null>(initial?.session ?? null);
   // Rows the session-scoped channels injected while a snapshot fetch was in
   // flight — kept across the next setSnapshot so a stale response cannot
   // flash a just-joined student or a just-cast vote back out of the panel.
@@ -49,6 +60,7 @@ export function useXyLiveSession(initial?: XYSnapshot): XyLiveState {
         if (!next.session || prev.session?.id !== next.session.id) {
           pendingPlayerIdsRef.current.clear();
           pendingVoteIdsRef.current.clear();
+          sessionRef.current = next.session;
           return next;
         }
 
@@ -73,6 +85,7 @@ export function useXyLiveSession(initial?: XYSnapshot): XyLiveState {
         );
 
         if (pendingPlayers.length === 0 && pendingVotes.length === 0) {
+          sessionRef.current = next.session;
           return next;
         }
 
@@ -92,6 +105,7 @@ export function useXyLiveSession(initial?: XYSnapshot): XyLiveState {
                   a.round_number - b.round_number
               );
 
+        sessionRef.current = next.session;
         return { ...next, players, individualVotes };
       });
       setError(null);
@@ -104,17 +118,48 @@ export function useXyLiveSession(initial?: XYSnapshot): XyLiveState {
     }
   }, []);
 
+  /** Status-only probe — used by the interval so hour-long play stays cheap. */
+  const pollSessionStatus = useCallback(async () => {
+    if (inFlightRef.current) return;
+
+    try {
+      const poll = await fetchXySessionStatusPoll(
+        createBrowserSupabaseClient(),
+        sessionRef.current?.id ?? null
+      );
+      const decision = applyXySessionStatusPoll(sessionRef.current, poll);
+
+      if (decision === "unchanged") return;
+
+      if (decision === "refresh") {
+        await refresh();
+        return;
+      }
+
+      sessionRef.current = decision;
+      setSnapshot((prev) =>
+        prev.session?.id === decision.id
+          ? { ...prev, session: decision }
+          : prev
+      );
+      setError(null);
+    } catch (err) {
+      console.error("[xy] session status poll failed", err);
+      setError(err instanceof Error ? err.message : "მონაცემები ვერ ჩაიტვირთა");
+    }
+  }, [refresh]);
+
   useEffect(() => {
     void (async () => {
       await refresh();
     })();
 
     const interval = window.setInterval(() => {
-      void refresh();
+      void pollSessionStatus();
     }, XY_POLL_INTERVAL_MS);
 
     return () => window.clearInterval(interval);
-  }, [refresh]);
+  }, [pollSessionStatus, refresh]);
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();

@@ -327,6 +327,32 @@ export function buildAnalyticsCsv(
   return lines.join("\n");
 }
 
+export type XYAnalyticsResult = {
+  rounds: number[];
+  rows: XYAnalyticsRow[];
+  csv: string;
+};
+
+/**
+ * Full post-game analytics pipeline: round list, per-student alignment rows,
+ * and the CSV export string. Kept allocation-light for hour-long sessions.
+ */
+export function computeXyAnalytics(input: {
+  players: readonly XYPlayer[];
+  teams: readonly XYTeam[];
+  individualVotes: readonly XYIndividualVote[];
+  teamVotes: readonly XYTeamVote[];
+  currentRound?: number;
+}): XYAnalyticsResult {
+  const rounds = resolveRoundNumbers(
+    input.individualVotes,
+    input.teamVotes,
+    input.currentRound ?? 1
+  );
+  const rows = buildAnalyticsRows({ ...input, rounds });
+  return { rounds, rows, csv: buildAnalyticsCsv(rows, rounds) };
+}
+
 /** Default Georgian team names for a fresh 8-team XY session. */
 export const XY_DEFAULT_TEAMS: readonly { name: string; color: string }[] = [
   { name: "ლურჯები", color: "#2563EB" },

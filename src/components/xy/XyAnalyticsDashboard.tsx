@@ -5,9 +5,7 @@ import { Download, Loader2 } from "lucide-react";
 
 import { useXyLiveSession } from "@/hooks/useXyLiveSession";
 import {
-  buildAnalyticsCsv,
-  buildAnalyticsRows,
-  resolveRoundNumbers,
+  computeXyAnalytics,
   type XYAnalyticsCell,
 } from "@/lib/xy/scoring";
 import { resolveXyPlayerName } from "@/lib/xy/roster";
@@ -56,27 +54,26 @@ function CellBadge({ cell }: { cell: XYAnalyticsCell }) {
 export function XyAnalyticsDashboard() {
   const live = useXyLiveSession();
 
-  const rounds = useMemo(
+  const analytics = useMemo(
     () =>
-      resolveRoundNumbers(
-        live.individualVotes,
-        live.teamVotes,
-        live.session?.current_round ?? 1
-      ),
-    [live.individualVotes, live.session?.current_round, live.teamVotes]
-  );
-
-  const rows = useMemo(
-    () =>
-      buildAnalyticsRows({
+      computeXyAnalytics({
         players: live.players,
         teams: live.teams,
         individualVotes: live.individualVotes,
         teamVotes: live.teamVotes,
-        rounds,
+        currentRound: live.session?.current_round ?? 1,
       }),
-    [live.individualVotes, live.players, live.teamVotes, live.teams, rounds]
+    [
+      live.individualVotes,
+      live.players,
+      live.session?.current_round,
+      live.teamVotes,
+      live.teams,
+    ]
   );
+
+  const rounds = analytics.rounds;
+  const rows = analytics.rows;
 
   const totals = useMemo(
     () => ({
@@ -87,8 +84,9 @@ export function XyAnalyticsDashboard() {
   );
 
   const handleExport = () => {
-    const csv = buildAnalyticsCsv(rows, rounds);
-    const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob([`\uFEFF${analytics.csv}`], {
+      type: "text/csv;charset=utf-8;",
+    });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;

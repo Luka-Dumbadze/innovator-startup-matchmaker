@@ -53,3 +53,25 @@ export function xySessionEndPatch(endedAt: Date = new Date()): {
     ended_at: endedAt.toISOString(),
   };
 }
+
+/**
+ * Pure in-memory mirror of `setXyRoundStateAction`'s session update.
+ * Network I/O is out of scope — this is the state transition that must stay
+ * sub-millisecond across 15+ round mentor drives.
+ */
+export function applyXyRoundState(
+  session: XYSession,
+  input: { round: number; votingOpen: boolean }
+): XYSession {
+  if (!input.round || !Number.isInteger(input.round) || input.round < 1) {
+    throw new Error("XY_INVALID_ROUND");
+  }
+  if (!isXySessionLive(session)) {
+    throw new Error("XY_SESSION_NOT_ACTIVE");
+  }
+  return {
+    ...session,
+    current_round: input.round,
+    voting_open: input.votingOpen,
+  };
+}

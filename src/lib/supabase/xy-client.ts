@@ -14,6 +14,7 @@ import type {
   XYIndividualVote,
   XYPlayer,
   XYSession,
+  XYSessionStatus,
   XYSnapshot,
   XYTeam,
   XYTeamVote,
@@ -107,6 +108,112 @@ export async function fetchActiveXySession(
       .limit(1)
       .maybeSingle()
   );
+}
+
+/**
+ * Columns the 1s fallback poll is allowed to touch. Heavy joins (players,
+ * votes, teams) stay on the initial snapshot + Realtime-driven refresh path.
+ */
+export const XY_SESSION_STATUS_POLL_COLUMNS =
+  "id, current_round, voting_open, status" as const;
+
+export type XySessionStatusPoll = {
+  id: string;
+  current_round: number;
+  voting_open: boolean;
+  status: XYSessionStatus;
+};
+
+function normalizeXySessionStatusPoll(row: unknown): XySessionStatusPoll | null {
+  if (!row || typeof row !== "object") return null;
+  const raw = row as Record<string, unknown>;
+  if (typeof raw.id !== "string" || !raw.id) return null;
+
+  const status = parseXySessionStatus(raw.status);
+  if (!status) return null;
+
+  return {
+    id: raw.id,
+    current_round:
+      typeof raw.current_round === "number" && raw.current_round >= 1
+        ? raw.current_round
+        : 1,
+    voting_open: raw.voting_open === true,
+    status,
+  };
+}
+
+/**
+ * Lightweight live-session probe for the polling safety net.
+ * Never selects roster or vote tables — only the four status columns.
+ */
+export async function fetchXySessionStatusPoll(
+  supabase: SupabaseClient<Database>,
+  sessionId?: string | null
+): Promise<XySessionStatusPoll | null> {
+  if (sessionId) {
+    const { data, error } = await supabase
+      .from("xy_sessions")
+      .select(XY_SESSION_STATUS_POLL_COLUMNS)
+      .eq("id", sessionId)
+      .maybeSingle();
+
+    if (error) {
+      if (error.code === UNDEFINED_COLUMN) return null;
+      throw new Error(error.message);
+    }
+
+    return normalizeXySessionStatusPoll(data);
+  }
+
+  const byStatus = await supabase
+    .from("xy_sessions")
+    .select(XY_SESSION_STATUS_POLL_COLUMNS)
+    .eq("status", XY_STATUS_ACTIVE)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (byStatus.error) {
+    if (byStatus.error.code === UNDEFINED_COLUMN) return null;
+    throw new Error(byStatus.error.message);
+  }
+
+  return normalizeXySessionStatusPoll(byStatus.data);
+}
+
+/**
+ * Merge a status poll into the current snapshot session.
+ * Returns `"refresh"` when the poll implies a session swap / end (caller
+ * should run a full `fetchXySnapshot`), `"unchanged"` when nothing moved.
+ */
+export function applyXySessionStatusPoll(
+  session: XYSession | null,
+  poll: XySessionStatusPoll | null
+): XYSession | "refresh" | "unchanged" {
+  if (!poll) {
+    return session ? "refresh" : "unchanged";
+  }
+
+  if (!session || session.id !== poll.id || poll.status !== XY_STATUS_ACTIVE) {
+    return "refresh";
+  }
+
+  if (
+    session.current_round === poll.current_round &&
+    session.voting_open === poll.voting_open &&
+    session.status === poll.status
+  ) {
+    return "unchanged";
+  }
+
+  return {
+    ...session,
+    current_round: poll.current_round,
+    voting_open: poll.voting_open,
+    status: poll.status,
+    is_active: poll.status === XY_STATUS_ACTIVE,
+  };
 }
 
 export const XY_TEAM_COLUMNS = "id, session_id, team_number, name, color, created_at";
