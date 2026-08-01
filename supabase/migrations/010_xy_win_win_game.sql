@@ -406,7 +406,8 @@ CREATE TABLE IF NOT EXISTS xy_team_votes (
   points_awarded INT NOT NULL DEFAULT 0,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CONSTRAINT uq_xy_team_votes UNIQUE (session_id, round_number, team_id)
+  CONSTRAINT uq_xy_team_votes UNIQUE (session_id, round_number, team_id),
+  CONSTRAINT unq_xy_team_votes_round UNIQUE (session_id, round_number, team_number)
 );
 
 -- Upgrade path for a table that carries only one side of each pair.
@@ -459,7 +460,8 @@ ALTER TABLE xy_team_votes
   ALTER COLUMN points_awarded SET NOT NULL;
 
 -- Mentor-entered scores are never deleted to satisfy a constraint: the FK is
--- only tightened once every row actually resolves to a team.
+-- only tightened once every row actually resolves to a team. Unique keys are
+-- re-asserted the same way so a database that predates them picks them up.
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM xy_team_votes WHERE team_id IS NULL) THEN
@@ -474,9 +476,31 @@ BEGIN
       FOREIGN KEY (team_id) REFERENCES xy_teams (id) ON DELETE CASCADE;
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_xy_team_votes') THEN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'uq_xy_team_votes'
+  ) AND NOT EXISTS (
+    SELECT 1
+    FROM xy_team_votes
+    WHERE team_id IS NOT NULL
+    GROUP BY session_id, round_number, team_id
+    HAVING COUNT(*) > 1
+  ) THEN
     ALTER TABLE xy_team_votes
       ADD CONSTRAINT uq_xy_team_votes UNIQUE (session_id, round_number, team_id);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'unq_xy_team_votes_round'
+  ) AND NOT EXISTS (
+    SELECT 1
+    FROM xy_team_votes
+    WHERE team_number IS NOT NULL
+    GROUP BY session_id, round_number, team_number
+    HAVING COUNT(*) > 1
+  ) THEN
+    ALTER TABLE xy_team_votes
+      ADD CONSTRAINT unq_xy_team_votes_round
+      UNIQUE (session_id, round_number, team_number);
   END IF;
 END;
 $$;

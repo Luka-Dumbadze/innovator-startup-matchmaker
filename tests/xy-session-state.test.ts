@@ -706,6 +706,9 @@ describe("xy_team_votes schema and reads", () => {
     expect(createBlock).toContain(
       "CONSTRAINT uq_xy_team_votes UNIQUE (session_id, round_number, team_id)"
     );
+    expect(createBlock).toContain(
+      "CONSTRAINT unq_xy_team_votes_round UNIQUE (session_id, round_number, team_number)"
+    );
   });
 
   it("re-runs safely and resolves either write shape", () => {
@@ -723,6 +726,24 @@ describe("xy_team_votes schema and reads", () => {
     expect(migration).toContain("CREATE OR REPLACE FUNCTION xy_team_votes_sync_team()");
     expect(migration).toMatch(
       /CREATE TRIGGER trg_xy_team_votes_sync_team\s*\n\s*BEFORE INSERT OR UPDATE ON xy_team_votes/
+    );
+  });
+
+  it("re-asserts both unique keys idempotently via pg_constraint", () => {
+    expect(migration).toContain(
+      "SELECT 1 FROM pg_constraint WHERE conname = 'uq_xy_team_votes'"
+    );
+    expect(migration).toContain(
+      "ADD CONSTRAINT uq_xy_team_votes UNIQUE (session_id, round_number, team_id)"
+    );
+    expect(migration).toContain(
+      "SELECT 1 FROM pg_constraint WHERE conname = 'unq_xy_team_votes_round'"
+    );
+    expect(migration).toContain(
+      "ADD CONSTRAINT unq_xy_team_votes_round"
+    );
+    expect(migration).toContain(
+      "UNIQUE (session_id, round_number, team_number)"
     );
   });
 
