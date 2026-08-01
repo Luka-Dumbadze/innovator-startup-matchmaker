@@ -14,6 +14,7 @@ import {
   describeXyError,
 } from "@/lib/xy/errors";
 import { isXySessionLive } from "@/lib/xy/session-state";
+import { toStudentSafeView } from "@/lib/xy/student-privacy";
 import {
   XY_NAME_MAX,
   getOrCreateXyPlayerUid,
@@ -51,24 +52,18 @@ export function XyStudentContainer() {
     })();
   }, []);
 
-  const session = live.session;
+  // Privacy boundary: the phone never keeps raw teamVotes / other players'
+  // individualVotes in the render path — only the safe projection.
+  const safe = useMemo(
+    () => toStudentSafeView(live, playerUid),
+    [live, playerUid]
+  );
+
+  const session = safe.session;
   const sessionId = session?.id ?? "";
   const round = session?.current_round ?? 1;
   const votingOpen = isXySessionLive(session) && session?.voting_open === true;
-
-  const me = useMemo(
-    () => (playerUid ? live.players.find((p) => p.player_uid === playerUid) ?? null : null),
-    [live.players, playerUid]
-  );
-
-  const serverVote = useMemo(() => {
-    if (!me) return null;
-    return (
-      live.individualVotes.find(
-        (v) => v.player_id === me.id && v.round_number === round
-      )?.vote ?? null
-    );
-  }, [live.individualVotes, me, round]);
+  const me = safe.me;
 
   // Keeps "vote received" on screen until the next snapshot confirms the tap.
   const optimisticVote =
@@ -76,7 +71,7 @@ export function XyStudentContainer() {
       ? cachedVote.vote
       : null;
 
-  const submittedVote = serverVote ?? optimisticVote;
+  const submittedVote = safe.myVoteForRound ?? optimisticVote;
 
   const join = useCallback(
     async (name: string) => {
@@ -307,6 +302,48 @@ export function XyStudentContainer() {
         <p className="text-center font-[family-name:var(--font-noto-georgian)] text-sm text-rose-300">
           {voteError}
         </p>
+      ) : null}
+
+      {safe.standings.length > 0 ? (
+        <section
+          aria-label="Team standings"
+          className="rounded-2xl border border-slate-800 bg-slate-900/50 p-3"
+        >
+          <h2 className="mb-2 font-[family-name:var(--font-noto-georgian)] text-xs font-bold tracking-wide text-slate-500 uppercase">
+            გუნდების ქულები
+          </h2>
+          <ul className="space-y-1.5">
+            {safe.standings.map((row, index) => (
+              <li
+                key={row.teamId}
+                className="flex items-center gap-2 rounded-lg px-2 py-1.5"
+              >
+                <span className="w-5 font-[family-name:var(--font-jetbrains)] text-xs text-slate-500">
+                  {index + 1}
+                </span>
+                <span
+                  className="size-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: row.color }}
+                />
+                <span className="flex-1 truncate font-[family-name:var(--font-noto-georgian)] text-sm text-slate-200">
+                  {row.name}
+                </span>
+                <span
+                  className={`font-[family-name:var(--font-jetbrains)] text-sm font-black ${
+                    row.totalPoints > 0
+                      ? "text-emerald-300"
+                      : row.totalPoints < 0
+                        ? "text-rose-300"
+                        : "text-slate-400"
+                  }`}
+                >
+                  {row.totalPoints > 0 ? "+" : ""}
+                  {row.totalPoints}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
       ) : null}
     </div>
   );

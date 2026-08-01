@@ -4,7 +4,8 @@ import { XyScoreboard } from "@/components/xy/XyScoreboard";
 
 export const metadata: Metadata = {
   title: "XY Scoreboard · Win-Win Simulation",
-  description: "Big-screen team scoreboard for the Win-Win simulation",
+  description:
+    "Big-screen cumulative team totals for the Win-Win simulation (no round-by-round decisions)",
 };
 
 export default function XyScoreboardPage() {

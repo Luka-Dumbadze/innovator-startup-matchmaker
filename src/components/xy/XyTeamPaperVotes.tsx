@@ -10,15 +10,18 @@ type XyTeamPaperVotesProps = {
   teams: XYTeam[];
   teamVotes: XYTeamVote[];
   pendingTeamId: string | null;
+  /** Team id that just auto-saved successfully — shows a brief ✓. */
+  savedTeamId: string | null;
   onSetVote: (teamId: string, vote: XYVote | null) => void;
 };
 
-/** Mentor enters the 8 paper decisions; points recompute for the whole round. */
+/** Mentor enters the 8 paper decisions; each tap auto-saves the full round. */
 export function XyTeamPaperVotes({
   round,
   teams,
   teamVotes,
   pendingTeamId,
+  savedTeamId,
   onSetVote,
 }: XyTeamPaperVotesProps) {
   const roundVotes = useMemo(
@@ -84,6 +87,17 @@ export function XyTeamPaperVotes({
                 }`}
               >
                 {vote ? `${vote.points > 0 ? "+" : ""}${vote.points}` : "—"}
+              </span>
+
+              <span
+                className={`w-[5.5rem] text-right font-[family-name:var(--font-noto-georgian)] text-[11px] font-semibold transition ${
+                  busy || savedTeamId === team.id
+                    ? "opacity-100"
+                    : "opacity-0"
+                } ${busy ? "text-slate-500" : "text-teal-300"}`}
+                aria-live="polite"
+              >
+                {busy ? "ინახება…" : "✓ შენახულია"}
               </span>
 
               <div className="flex gap-1.5">

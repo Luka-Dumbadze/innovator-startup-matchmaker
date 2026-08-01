@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition, type FormEvent } from "react";
+import { useMemo, useRef, useState, useTransition, type FormEvent } from "react";
 import Link from "next/link";
 import { BarChart3, Loader2, MonitorPlay, Rocket } from "lucide-react";
 
@@ -52,6 +52,8 @@ function XyMentorPanelInner({ initial, loadError = null }: XyMentorPanelProps) {
   );
   const [pendingPlayerId, setPendingPlayerId] = useState<string | null>(null);
   const [pendingTeamId, setPendingTeamId] = useState<string | null>(null);
+  const [savedTeamId, setSavedTeamId] = useState<string | null>(null);
+  const savedFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [sessionLabel, setSessionLabel] = useState("");
   // Toasts auto-dismiss; a failed mutation also stays pinned so the exact DB
   // error is still on screen when the mentor comes back to it.
@@ -196,10 +198,11 @@ function XyMentorPanelInner({ initial, loadError = null }: XyMentorPanelProps) {
     });
   };
 
-  /** Team paper votes save as a full round so points always stay consistent. */
+  /** Team paper votes auto-save on every tap — no separate Save button. */
   const handleSetTeamVote = (teamId: string, vote: XYVote | null) => {
     if (!session) return;
     setPendingTeamId(teamId);
+    setSavedTeamId(null);
 
     const existing = new Map(
       live.teamVotes
@@ -221,12 +224,18 @@ function XyMentorPanelInner({ initial, loadError = null }: XyMentorPanelProps) {
       });
       if (result.success) {
         setActionError(null);
-        toast.push(
-          result.data.complete
-            ? `რაუნდი #${selectedRound} დაითვლა`
-            : `შენახულია (${result.data.scored}/8)`,
-          "success"
-        );
+        setSavedTeamId(teamId);
+        if (savedFlashTimerRef.current) {
+          clearTimeout(savedFlashTimerRef.current);
+        }
+        savedFlashTimerRef.current = setTimeout(() => {
+          setSavedTeamId((current) => (current === teamId ? null : current));
+        }, 1800);
+
+        // Round-complete is worth a toast; single-cell saves stay inline.
+        if (result.data.complete) {
+          toast.push(`რაუნდი #${selectedRound} დაითვლა`, "success");
+        }
       } else {
         setActionError(result.error);
         toast.push(result.error, "error");
@@ -352,6 +361,7 @@ function XyMentorPanelInner({ initial, loadError = null }: XyMentorPanelProps) {
         teams={live.teams}
         teamVotes={live.teamVotes}
         pendingTeamId={pendingTeamId}
+        savedTeamId={savedTeamId}
         onSetVote={handleSetTeamVote}
       />
 
